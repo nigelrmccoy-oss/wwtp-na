@@ -1,25 +1,66 @@
-# WWTP Research Pack — Highway 401 / Waterloo Region Corridor
+# WWTP Research Pack — Ontario plants (Waterloo Region + Hamilton + Toronto + rural septic)
 
 **Project:** wwtp-na (Three.js operator-training sim)  
-**Focus:** St. Jacobs / Woolwich (small), Waterloo (medium), Kitchener (large); Cambridge (Galt) and Guelph noted for context  
-**Date compiled:** 2026-09-14  
-**Method:** Public Region of Waterloo reports, WWTMP tech memos, ECAs cited therein, GRCA WWOP, OSM Overpass/Nominatim. No Street View / Apple Maps scraping.
+**Focus:** Farm Class 4 septic (**micro**), St. Jacobs (**small**), Waterloo (**medium**), Kitchener (**large**), Galt (medium corridor), Woodward Hamilton & Ashbridges Bay Toronto (**xlarge**)  
+**Date compiled:** 2026-09-14 (extended same day with Hamilton / Toronto / farm septic)  
+**Method:** Public municipal reports, ECAs cited therein, OBC Part 8 design tables, OSM Overpass/Nominatim. No Street View / Apple Maps scraping.
 
-**Owner / operator (all Region plants):** Regional Municipality of Waterloo (owner); Ontario Clean Water Agency — OCWA (contract operator).
+**Owner / operator:** Waterloo Region plants — Regional Municipality of Waterloo / OCWA. Woodward — City of Hamilton. Ashbridges Bay — City of Toronto (Toronto Water). Farm septic — private (OBC Part 8).
 
 ---
 
 ## Summary table
 
-| Plant | Size tier | Rated ADF | Peak / hydraulic | 2023 ADF (WWWMR) | Process (high level) |
-|-------|-----------|-----------|------------------|------------------|----------------------|
-| St. Jacobs WWTP | **small** | 1.45 MLD | ~5.18 MLD firm PS / UV ~3.63 MLD peak design | 0.905 MLD | Oxidation ditch EA + tertiary + UV |
-| Waterloo WWTP | **medium** | 57.5 MLD | 72.73 MLD hydraulic | 42.74 MLD | CAS + UV (+ CHP); expansion path to 72.73 |
-| Kitchener WWTP | **large** | 122.745 MLD | 306.862 MLD peak | 73.585 MLD | CAS + tertiary filters + UV (+ CHP) |
-| Galt WWTP (Cambridge) | medium† | 56.8 MLD Stage 1 | 171.1 MLD peak | 26.436 MLD | CAS + tertiary + UV (+ CHP) |
-| Guelph WWTP | large (outside Region) | — | — | — | City of Guelph (see OSM); not detailed here |
+| Plant | Size tier | Rated ADF | Peak / hydraulic | Recent ADF | Process (high level) |
+|-------|-----------|-----------|------------------|------------|----------------------|
+| Farm Class 4 septic (illustrative) | **micro** | **0.002 MLD** (2.0 m³/d) | ~0.004 MLD est. peak day | ~1.5 m³/d est. | Septic tank + effluent filter + leaching bed |
+| St. Jacobs WWTP | **small** | 1.45 MLD | ~5.18 MLD firm PS / UV ~3.63 MLD peak design | 0.905 MLD (2023) | Oxidation ditch EA + tertiary + UV |
+| Waterloo WWTP | **medium** | 57.5 MLD | 72.73 MLD hydraulic | 42.74 MLD (2023) | CAS + UV (+ CHP); expansion path to 72.73 |
+| Kitchener WWTP | **large** | 122.745 MLD | 306.862 MLD peak | 73.585 MLD (2023) | CAS + tertiary filters + UV (+ CHP) |
+| Galt WWTP (Cambridge) | medium† | 56.8 MLD Stage 1 | 171.1 MLD peak | 26.436 MLD (2023) | CAS + tertiary + UV (+ CHP) |
+| **Woodward Ave WWTP (Hamilton)** | **xlarge** | **409 MLD** | **614 MLD** peak full treatment | ~300 MLD est. | CAS + tertiary cloth filters + Cl₂ (+ 1.6 MW CHP / RNG) |
+| **Ashbridges Bay WWTP (Toronto)** | **xlarge** | **818 MLD** | **3,923 MLD** outfall peak‡ | **576.3 MLD (2024)** | CAS + Fe P-removal + NaOCl (UV under construction) + digesters / pelletizer |
+| Guelph WWTP | large (outside pack detail) | — | — | — | City of Guelph (see OSM); not detailed here |
 
-†Galt is included as a relevant Cambridge / 401-corridor plant; primary sim tiers are small/medium/large = St. Jacobs / Waterloo / Kitchener.
+†Galt is included as a relevant Cambridge / 401-corridor plant.  
+‡Ashbridges Bay `peakMld` is **new outfall hydraulic design**, not secondary treatment peak (secondary bypasses occur ~1.7–2.6 GL/d wet weather).
+
+---
+
+
+## 0. Ontario rural farm Class 4 septic (micro) — illustrative
+
+### Identity & location
+- **Official name:** Class 4 on-site sewage system (septic tank + leaching bed) serving a rural farm dwelling  
+- **Address / lat-lon:** **Illustrative** farmland near St. Jacobs / Woolwich (~**43.5520, −80.5750**). Not a surveyed parcel — for sim scale contrast only.  
+- **Receiver:** Subsurface soil absorption (groundwater); **no surface-water outfall**  
+- **Owner / operator:** Private; design/approval under **Ontario Building Code Part 8** via local chief building official (flows ≤10,000 L/d). Larger systems need MECP ECA.
+
+### Capacity
+| Metric | Value | Source |
+|--------|-------|--------|
+| Design daily flow (4-bedroom dwelling) | **2,000 L/d = 2.0 m³/d = 0.002 MLD** | OBC Table 8.2.1.3.A |
+| 3-bedroom dwelling (for comparison) | 1,600 L/d = 1.6 m³/d | OBC Table 8.2.1.3.A |
+| Peak day (sim) | ~0.004 MLD (**estimated** ~2× design) | Engineering judgment |
+| Optional livestock wash (if connected) | ~0.5–2 m³/d (**estimated**; not in base avgMld) | Mark estimated; may push toward MECP if total >10,000 L/d |
+| OBC Class 4 ceiling | ≤10,000 L/d (10 m³/d) | Municipal sewage-system guides / OBC Part 8 |
+
+### Process train
+1. **Septic tank** (typically ≥2 compartments) — primary settling + anaerobic digestion of solids  
+2. **Effluent filter** on tank outlet  
+3. **Leaching bed** (absorption trenches or filter bed) sized to daily design flow **Q** and soil percolation (T-time)  
+4. Optional: effluent pump / alarms for raised beds or poor drainage
+
+### Water quality
+Influent/effluent concentrations in `plants.json` are **typical residential / tank-effluent ranges (estimated)** — not site lab data. Soil treatment in the leaching bed further reduces BOD, TSS, and pathogens before groundwater.
+
+### Energy
+Gravity systems draw essentially no continuous power; `powerKw` ~0.1 assumes intermittent pump/alarms (**estimated**).
+
+### Sources
+- [OBC Table 8.2.1.3.A (municipal excerpt)](https://www.northdundas.com/sites/1/files/2020-12/Schedule-B-Ontario-Building-Code.pdf)  
+- [Selwyn Township Sewage System Guide](https://www.selwyntownship.ca/media/kn5ixssn/sewage-system-guide.pdf)  
+- [Thames Centre Class 2/4/5 design worksheet](https://www.thamescentre.on.ca/media/nnubdzxb/design-calculations-for-class-2-4-5-on-site-sewage-systems.pdf)
 
 ---
 
@@ -189,6 +230,94 @@
 - **Process:** CAS + tertiary filtration + UV; alum; anaerobic digestion + centrifuges; CHP (with Kitchener/Waterloo)  
 - **Sources:** TM2 §3.3; 2024 WWWMR §3.2.3  
 
+
+## 6. Woodward Avenue Wastewater Treatment Plant — Hamilton (xlarge)
+
+### Identity & location
+- **Official name:** Woodward Avenue Wastewater Treatment Plant  
+- **Address:** 700 Woodward Avenue, Hamilton, ON  
+- **Approx. lat/lon:** **43.2532, −79.7716** (OSM `man_made=wastewater_plant` way **778404147**)  
+- **Receiver:** Red Hill Creek → Hamilton Harbour (Area of Concern)  
+- **Owner / operator:** City of Hamilton (Hamilton Water)  
+- **Role:** Largest municipal WWTP in Hamilton; treats ~**96%** of city wastewater (City news release)
+
+### Capacity
+| Metric | Value | Source |
+|--------|-------|--------|
+| Rated average day | **409 MLD** | City Wastewater Systems page; AECOM; Phase 2 project page |
+| Peak full treatment | **614 MLD** | Same; flows above 614 MLD receive preliminary treatment then bypass |
+| Phase 2 target | 500 MLD avg / **1,000 MLD** peak | City Phase 2 page; Jacobs May 2024 |
+| Raw PS firm (conveyance) | ~1,700 MLD | AECOM project page (not treatment capacity) |
+| Recent ADF | ~300 MLD | **Estimated** for sim SCADA (~73% of rated); confirm in City Wastewater Facilities Annual Report when PDF available |
+
+### Process train
+1. Preliminary: screening + grit  
+2. Primary clarification  
+3. Secondary: conventional activated sludge (North/South plants; Phase 1 nitrification upgrades)  
+4. Tertiary: cloth-media filtration (commissioned ~2022–2024)  
+5. Disinfection: chlorine (seasonal / as required) → Red Hill Creek outfall  
+6. Solids: anaerobic digestion; biosolids / thermal drying pellet program  
+7. Energy: **1.6 MW** digester-gas CHP (HRPI) + RNG upgrader (Greenlane) for surplus biogas
+
+### Effluent compliance note
+After tertiary commissioning, TSS monthly limit **10 mg/L** and annual **6 mg/L** (City Communication Update HW2604, July 2026). Influent/effluent concentrations in JSON are largely **estimated** pending full annual-report extraction.
+
+### Sources
+- [City — Wastewater Systems](https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems)  
+- [City — Woodward WWTP Upgrades (Phase 2)](https://www.hamilton.ca/home-neighbourhood/environmental-stewardship/our-harbour/woodward-wastewater-treatment-plant)  
+- [Jacobs Phase 2 press release](https://www.jacobs.com/newsroom/press-release/jacobs-design-wastewater-treatment-plant-expansion-one-canadas-largest)  
+- [AECOM Woodward expansion](https://aecom.com/tw/projects/woodward-avenue-wastewater-treatment-plant-expansion-upgrades/?lang=en)  
+- [HW2604 effluent compliance update](https://www.hamilton.ca/sites/default/files/2026-07/Comm-update-WWTP-Effluent-Compliance-%28HW2604%29.pdf)  
+- [Municipal Biogas — Hamilton RNG snapshot](https://municipalbiogas.ca/wp-content/uploads/2024/03/MunicipalBiogas-ProjectSnapshot-Hamilton.pdf)
+
+---
+
+## 7. Ashbridges Bay Wastewater Treatment Plant — Toronto (xlarge)
+
+### Identity & location
+- **Official name:** Ashbridges Bay Treatment Plant (ABTP) / Ashbridges Bay Wastewater Treatment Plant  
+- **Address:** 9 Leslie Street, Toronto; raw sewage pump stations at 1091 Eastern Avenue (M & T Buildings)  
+- **Approx. lat/lon:** **43.6571, −79.3192** (OSM way **265096981**)  
+- **Receiver:** Lake Ontario (existing diffuser outfall ~1,000 m; new outfall under construction)  
+- **Owner / operator:** City of Toronto — Toronto Water  
+- **Service:** ~25,000 ha sewershed; ~**1.39 million** equivalent population; also receives solids from Humber & North Toronto plants  
+- **ECA (2024 ops):** Amended ECA Sewage No. **0574-CQ6J5H** (2 May 2023); later amended **3884-DPHH5K** (19 Dec 2025) per 2025 annual report
+
+### Capacity
+| Metric | Value | Source |
+|--------|-------|--------|
+| Rated average / secondary | **818 MLD** (818,000 m³/d) | City ABTP 2024 Annual Report; City facility page |
+| 2024 ADF | **576.29 MLD** | 2024 Annual Report |
+| 2025 ADF | **552.98 MLD** | 2025 Annual Report |
+| New outfall peak (high lake) | **3,923 MLD** | Hatch outfall project; ABTP EA resolution |
+| Observed wet-weather plant peaks | ~1,754–2,588 MLD (bypass / washout events) | 2024–2025 annual reports |
+
+**Note:** JSON `peakMld` = **3,923** (outfall hydraulic design). Secondary treatment peak is lower and operationally limited by final clarifiers.
+
+### Process train
+1. Preliminary: P & D Buildings — mechanical screens + aerated grit; FeCl₂ for P removal  
+2. Primary: 12 clarification tanks  
+3. Secondary: 11 step-feed aeration tanks + 11 final clarifiers; 10 blowers  
+4. WAS thickening: DAF (10 tanks) + polymer; co-settle option in primaries  
+5. Disinfection: sodium hypochlorite (UV facility under construction)  
+6. Solids: 20 primary anaerobic digesters → 12 centrifuges → land application / soil amendment / **pelletizer** / mine reclamation  
+
+### Water quality (2024 published)
+**Influent avg:** BOD₅ 202.8; TSS 295.8; TP 6.9; TKN 45.4 mg/L.  
+**Secondary effluent avg:** cBOD₅ 7.3; TSS 15.9; TP 0.8; TAN 9.8 mg/L.  
+**ECA secondary limits:** cBOD/TSS 25 mg/L AAC; TP 1.0 mg/L monthly.
+
+### Energy
+2024 hydro **134.7 GWh** over **210,921 ML** → **~639 kWh/ML** (calculated from annual report). Digester gas used for heating; historical ~8–10 MW biogas CHP proposals not confirmed as current plant CHP in the 2024 report.
+
+### Sources
+- [2024 ABTP Annual Report (PDF)](https://www.toronto.ca/wp-content/uploads/2025/04/9617-2024-TAB-Annual-Report-Final-AODA.pdf)  
+- [2025 ABTP Annual Report (PDF)](https://www.toronto.ca/wp-content/uploads/2026/06/9914-2025-TAB-Annual-Report-Final-AODA.pdf)  
+- [City facility page](https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/)  
+- [Hatch — ABTP Outfall](https://www.hatch.com/Projects/Infrastructure/Ashbridges-Bay-Treatment-Plant-Outfall)
+
+---
+
 ## 5. Guelph WWTP — context only
 
 - **Owner:** City of Guelph (not Region of Waterloo)  
@@ -253,6 +382,10 @@ Plant-specific audited kWh/ML not found in public PDFs reviewed; sim `powerKw` f
 | Waterloo | 43.488, −80.507 | `(43.45,-80.55,43.52,-80.46)` |
 | Kitchener | 43.398, −80.421 | `(43.36,-80.46,43.43,-80.38)` |
 | Galt | 43.423, −80.329 | `(43.39,-80.37,43.45,-80.29)` |
+| Woodward (Hamilton) | 43.253, −79.772 | `(43.23,-79.80,43.28,-79.74)` |
+| Ashbridges Bay (Toronto) | 43.657, −79.319 | `(43.63,-79.35,43.68,-79.29)` |
+| Farm septic (illustrative) | 43.552, −80.575 | N/A (no plant footprint) |
+
 
 ### Nominatim / name search
 - `"Kitchener Wastewater Treatment Plant"`
@@ -263,7 +396,9 @@ Known OSM IDs (as of research date):
 - Kitchener: way **154430088**  
 - Waterloo: way **398629823**  
 - St. Jacobs: way **816956510**  
-- Galt (unnamed fence footprint): way **337944783**
+- Galt (unnamed fence footprint): way **337944783**  
+- Woodward (Hamilton): way **778404147**  
+- Ashbridges Bay (Toronto): way **265096981**
 
 ---
 
@@ -311,7 +446,15 @@ OpenTopography: https://opentopography.org/ — check dataset-specific licences 
 | GRCA 2023 WWTP summary | https://www.grandriver.ca/media/rjzjqnfr/2023-wwtp-summary-report.pdf |
 | Corporate Energy Plan 2024–2033 | https://www.regionofwaterloo.ca/media/fhlhzrzb/2024-2033-corporate-energy-plan.pdf |
 | St. Jacobs EA commencement | https://www.regionofwaterloo.ca/media/d0pdkjll/st-jacobs_wwtp_expansion_schedule_c_ea_-_notice_of_study_commencementpdf.pdf |
+| City of Hamilton — Wastewater Systems | https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems |
+| City of Hamilton — Woodward WWTP Upgrades | https://www.hamilton.ca/home-neighbourhood/environmental-stewardship/our-harbour/woodward-wastewater-treatment-plant |
+| Jacobs — Woodward Phase 2 | https://www.jacobs.com/newsroom/press-release/jacobs-design-wastewater-treatment-plant-expansion-one-canadas-largest |
+| City of Toronto — ABTP 2024 Annual Report | https://www.toronto.ca/wp-content/uploads/2025/04/9617-2024-TAB-Annual-Report-Final-AODA.pdf |
+| City of Toronto — Ashbridges Bay facility page | https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/ |
+| Hatch — ABTP Outfall | https://www.hatch.com/Projects/Infrastructure/Ashbridges-Bay-Treatment-Plant-Outfall |
+| OBC Table 8.2.1.3.A (municipal excerpt) | https://www.northdundas.com/sites/1/files/2020-12/Schedule-B-Ontario-Building-Code.pdf |
+
 
 ---
 
-*Figures marked estimated in `plants.json` use Ontario median energy intensity or design-peak hydraulic values where ECA peak ADF is not separately published.*
+*Figures marked estimated in `plants.json` use Ontario median energy intensity, engineering peak factors, or typical septic strength where site-specific published values were not available. Ashbridges Bay peak uses published outfall hydraulic design (3,923 MLD), not secondary rated peak.*

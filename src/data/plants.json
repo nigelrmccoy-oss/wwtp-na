@@ -1,0 +1,746 @@
+{
+  "plants": [
+    {
+      "id": "farm-septic",
+      "name": "Ontario Rural Farm Class 4 Septic System (illustrative)",
+      "size": "micro",
+      "owner": "Private (rural farm dwelling)",
+      "operator": "Private owner (OBC Part 8 / local building department)",
+      "address": "Illustrative farmland near St. Jacobs, Woolwich Township, ON (not a specific parcel)",
+      "receiver": "Subsurface leaching bed / groundwater (no surface outfall)",
+      "location": {
+        "lat": 43.552,
+        "lon": -80.575
+      },
+      "capacity": {
+        "avgMld": 0.002,
+        "peakMld": 0.004,
+        "unit": "m3/d",
+        "notes": "Estimated residential/livestock-adjacent septic: ~1\u20135 m3/d per Ontario Building Code / historic MOE septic design guidelines (training estimate, not a surveyed system).",
+        "avgM3d": 2.0,
+        "peakM3d": 4.0
+      },
+      "capacityEstimated": {
+        "avgM3d": true,
+        "peakM3d": true,
+        "avgMld": true,
+        "peakMld": true
+      },
+      "process": [
+        "septic_tank",
+        "effluent_filter",
+        "leaching_bed"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 250,
+          "tssMgL": 250,
+          "tpMgL": 10.0,
+          "nh3OrTknMgL": 50,
+          "nh3Label": "TKN",
+          "period": "Typical residential sewage strength (illustrative; not site-sampled)"
+        },
+        "effluent": {
+          "bodMgL": 140,
+          "tssMgL": 50,
+          "tpMgL": 8.0,
+          "nh3MgL": 40,
+          "nh3Notes": "Septic-tank effluent to leaching bed (typical ranges); soil treatment further reduces BOD/TSS/pathogens before groundwater. Estimated \u2014 not MECP compliance numbers.",
+          "period": "Typical Class 4 tank effluent (estimated)",
+          "estimated": {
+            "bodMgL": true,
+            "tssMgL": true,
+            "tpMgL": true,
+            "nh3MgL": true
+          }
+        },
+        "ecaObjectivesMgL": {
+          "notes": "Class 4 systems <=10,000 L/d are regulated under Ontario Building Code Part 8 (not a municipal WWTP ECA). Design/construction per OBC Division B Part 8 and local CBO; >10,000 L/d \u2192 MECP sewage works ECA."
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 50,
+        "intensityEstimated": true,
+        "intensitySource": "Gravity Class 4 septic uses little/no continuous power; estimate assumes optional effluent pump / alarms only (~0.1 kW intermittent).",
+        "chpKw": null,
+        "majorEquipment": [
+          "Septic tank (typically >=2-compartment; working capacity sized to >=2x daily design flow per OBC)",
+          "Effluent filter on tank outlet",
+          "Distribution box / header",
+          "Leaching bed (absorption trenches or filter bed) sized to Q and soil percolation (T-time)",
+          "Optional effluent pump / float alarms (pumped systems)"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 0.0015,
+        "aerationDoMgL": 0.0,
+        "mlssMgL": 0,
+        "powerKw": 0.1,
+        "uvDose": 0,
+        "estimated": {
+          "influentFlowMld": true,
+          "powerKw": true,
+          "uvDose": true
+        },
+        "tankLevelPct": 45,
+        "pumpAlarmFloat": false
+      },
+      "sources": [
+        {
+          "title": "Ontario Building Code \u2014 Table 8.2.1.3.A Residential Occupancy design sewage flows (excerpt via municipal schedule)",
+          "url": "https://www.northdundas.com/sites/1/files/2020-12/Schedule-B-Ontario-Building-Code.pdf"
+        },
+        {
+          "title": "Township of Selwyn \u2014 Sewage System Guide (Class 4 overview; OBC <=10,000 L/d)",
+          "url": "https://www.selwyntownship.ca/media/kn5ixssn/sewage-system-guide.pdf"
+        },
+        {
+          "title": "Municipality of Thames Centre \u2014 Design calculations worksheet for Class 2/4/5 on-site sewage systems",
+          "url": "https://www.thamescentre.on.ca/media/nnubdzxb/design-calculations-for-class-2-4-5-on-site-sewage-systems.pdf"
+        }
+      ],
+      "scadaProfile": "septic"
+    },
+    {
+      "id": "st-jacobs",
+      "name": "St. Jacobs Wastewater Treatment Plant",
+      "size": "small",
+      "owner": "Regional Municipality of Waterloo",
+      "operator": "Ontario Clean Water Agency (OCWA)",
+      "address": "61 Water Street, St. Jacobs, ON",
+      "receiver": "Conestogo River",
+      "location": {
+        "lat": 43.5356,
+        "lon": -80.5485
+      },
+      "capacity": {
+        "avgMld": 1.45,
+        "peakMld": 5.18,
+        "unit": "MLD",
+        "notes": "Rated ADF 1,450 m3/d (ECA). peakMld uses firm raw sewage pumping capacity 5,180 m3/d (TM2); UV peak design ~3.63 MLD."
+      },
+      "capacityEstimated": {
+        "peakMld": true
+      },
+      "process": [
+        "screening",
+        "grit",
+        "oxidation_ditch",
+        "clarifier",
+        "tertiary_filtration",
+        "chemical_p_removal",
+        "uv",
+        "aerated_sludge_holding"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 120,
+          "tssMgL": 220,
+          "tpMgL": 5.0,
+          "nh3OrTknMgL": 35,
+          "nh3Label": "TKN",
+          "period": "2012-2014 avg (TM2 Table 56)"
+        },
+        "effluent": {
+          "bodMgL": 1.7,
+          "tssMgL": 1.6,
+          "tpMgL": 0.07,
+          "nh3MgL": 0.14,
+          "nh3Notes": "Summer TAN avg 0.14; winter avg 0.42 (TM2 Table 57)",
+          "period": "2012-2014 avg"
+        },
+        "ecaObjectivesMgL": {
+          "bod": 5.0,
+          "tss": 5.0,
+          "tp": 0.2,
+          "tanSummer": 0.7,
+          "tanWinter": 1.0
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 1010,
+        "intensityEstimated": true,
+        "intensitySource": "Ontario WWTP median 1.01 eMWh/ML (Save on Energy)",
+        "chpKw": null,
+        "majorEquipment": [
+          "3 raw sewage pumps (firm 60 L/s)",
+          "2 grinder/auger screens",
+          "1 vortex grit tank",
+          "1 oxidation ditch (904 m3) with 2 mechanical rotors",
+          "2 secondary clarifiers",
+          "3 deep-bed tertiary filters",
+          "1 UV channel (~3625 m3/d peak design)",
+          "1 aerated sludge holding tank (195 m3)"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 0.91,
+        "aerationDoMgL": 2.0,
+        "mlssMgL": 3500,
+        "powerKw": 40,
+        "uvDose": 40,
+        "estimated": {
+          "powerKw": true,
+          "uvDose": true
+        }
+      },
+      "sources": [
+        {
+          "title": "WWTMP TM2 \u2014 Status of Existing Treatment Facilities and Capacity Assessment (May 2017)",
+          "url": "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+        },
+        {
+          "title": "2024 Water and Wastewater Monitoring Report (Region of Waterloo)",
+          "url": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/sm1dzkby/2024-water-and-wastewater-monitoring-report-final-s-access.pdf"
+        },
+        {
+          "title": "St. Jacobs WWTP Expansion Schedule C Class EA \u2014 Notice of Study Commencement",
+          "url": "https://www.regionofwaterloo.ca/media/d0pdkjll/st-jacobs_wwtp_expansion_schedule_c_ea_-_notice_of_study_commencementpdf.pdf"
+        },
+        {
+          "title": "St. Jacobs and Elmira Wastewater Treatment Master Plan (2013)",
+          "url": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf"
+        }
+      ],
+      "scadaProfile": "municipal"
+    },
+    {
+      "id": "waterloo",
+      "name": "Waterloo Wastewater Treatment Plant",
+      "size": "medium",
+      "owner": "Regional Municipality of Waterloo",
+      "operator": "Ontario Clean Water Agency (OCWA)",
+      "address": "340 University Avenue East, Waterloo, ON",
+      "receiver": "Grand River",
+      "location": {
+        "lat": 43.4875,
+        "lon": -80.5075
+      },
+      "capacity": {
+        "avgMld": 57.5,
+        "peakMld": 72.73,
+        "unit": "MLD",
+        "notes": "Rated average day treatment 57,500 m3/d; ECA hydraulic capacity 72,730 m3/d."
+      },
+      "process": [
+        "screening",
+        "grit",
+        "primary",
+        "activated_sludge",
+        "clarifier",
+        "chemical_p_removal",
+        "uv",
+        "anaerobic_digestion",
+        "was_thickening",
+        "centrifuge_dewatering",
+        "chp"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 200,
+          "tssMgL": 320,
+          "tpMgL": 6.0,
+          "nh3OrTknMgL": 50,
+          "nh3Label": "TKN",
+          "period": "Historic/design (TM2 Table 10); TSS from 2009-2010"
+        },
+        "effluent": {
+          "bodMgL": 6.7,
+          "tssMgL": 6.2,
+          "tpMgL": 0.3,
+          "nh3MgL": 1.5,
+          "nh3Notes": "2012-2014 TAN avg was ~23.8 mg/L pre full nitrification; ECA/ACS objective 1.5 used as post-upgrade default",
+          "period": "BOD/TSS/TP 2012-2014 avg; TAN objective post-Contract 4",
+          "estimated": {
+            "nh3MgL": true
+          }
+        },
+        "ecaObjectivesMgL": {
+          "bod": 10.0,
+          "tss": 10.0,
+          "tp": 0.4,
+          "tan": 1.5
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 1010,
+        "intensityEstimated": true,
+        "intensitySource": "Ontario WWTP median 1.01 eMWh/ML (Save on Energy)",
+        "chpKw": 600,
+        "chpSource": "WWTMP TM7; Region CEP notes ~60% of electricity at Kitchener/Waterloo/Galt CHP sites",
+        "majorEquipment": [
+          "5 raw sewage pumps (firm ~200,000 m3/d)",
+          "3 perforated-plate screens",
+          "2 vortex grit tanks",
+          "4 circular primary clarifiers",
+          "2 aeration tanks (21,345 m3) + 7 centrifugal blowers",
+          "4 secondary clarifiers",
+          "UV 4 channels (200,000 m3/d peak)",
+          "Anaerobic digesters (~13,000 m3 primary + 6,500 m3 secondary)",
+          "Rotary drum WAS thickeners + centrifuges",
+          "Biogas CHP ~600 kW"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 42.74,
+        "aerationDoMgL": 2.0,
+        "mlssMgL": 3500,
+        "powerKw": 1800,
+        "uvDose": 40,
+        "estimated": {
+          "powerKw": true,
+          "uvDose": true
+        }
+      },
+      "sources": [
+        {
+          "title": "WWTMP TM2 \u2014 Status of Existing Treatment Facilities and Capacity Assessment (May 2017)",
+          "url": "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+        },
+        {
+          "title": "WWTMP TM7 \u2014 Solids Treatment Alternatives (May 2018)",
+          "url": "https://www.regionofwaterloo.ca/media/p4gperzv/ws2018v3-tech_memo_7-solids_treatment_alternatives-may_2018.pdf"
+        },
+        {
+          "title": "2024 Water and Wastewater Monitoring Report",
+          "url": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/sm1dzkby/2024-water-and-wastewater-monitoring-report-final-s-access.pdf"
+        },
+        {
+          "title": "Region of Waterloo 2024\u20132033 Corporate Energy Plan",
+          "url": "https://www.regionofwaterloo.ca/media/fhlhzrzb/2024-2033-corporate-energy-plan.pdf"
+        },
+        {
+          "title": "CIMA+ \u2014 Cogeneration at three Region of Waterloo WWTPs",
+          "url": "https://www.cima.ca/en/project/installation-of-cogeneration-facilities-at-three-region-of-waterloo-wastewater-treatment-plants/"
+        }
+      ],
+      "scadaProfile": "municipal"
+    },
+    {
+      "id": "kitchener",
+      "name": "Kitchener Wastewater Treatment Plant",
+      "size": "large",
+      "owner": "Regional Municipality of Waterloo",
+      "operator": "Ontario Clean Water Agency (OCWA)",
+      "address": "368 Mill Park Drive, Kitchener, ON",
+      "receiver": "Grand River",
+      "location": {
+        "lat": 43.3982,
+        "lon": -80.4209
+      },
+      "capacity": {
+        "avgMld": 122.745,
+        "peakMld": 306.862,
+        "unit": "MLD",
+        "notes": "ECA ADF 122,745 m3/d; peak flow capacity 306,862 m3/d. WWWMR often rounds rated capacity to 122,700 m3/d."
+      },
+      "process": [
+        "screening",
+        "grit",
+        "primary",
+        "activated_sludge",
+        "clarifier",
+        "tertiary_filtration",
+        "chemical_p_removal",
+        "uv",
+        "anaerobic_digestion",
+        "offsite_dewatering",
+        "chp"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 180,
+          "tssMgL": 240,
+          "tpMgL": 6.0,
+          "nh3OrTknMgL": 40,
+          "nh3Label": "TKN",
+          "period": "2012-2014 avg (TM2 Table 3)"
+        },
+        "effluent": {
+          "bodMgL": 6.2,
+          "tssMgL": 8.5,
+          "tpMgL": 0.62,
+          "nh3MgL": 6.4,
+          "nh3Notes": "TAN 2013-2014 after Plant 2 upgrades; further reduction expected after Plants 3/4 + tertiary (2019). GRCA reports watershed TAN drop post-upgrades.",
+          "period": "2012-2014 avg (TM2 Table 4)"
+        },
+        "ecaObjectivesMgL": {
+          "bod": 10.0,
+          "tss": 10.0,
+          "tp": 0.2,
+          "notes": "Post tertiary-filter ECA objectives; prior TP objective 0.6"
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 1010,
+        "intensityEstimated": true,
+        "intensitySource": "Ontario WWTP median 1.01 eMWh/ML (Save on Energy)",
+        "chpKw": 800,
+        "chpSource": "WWTMP TM7; Region CEP ~60% site electricity with CHP fleet",
+        "majorEquipment": [
+          "4 perforated screens + 2 vortex grit tanks (Phase 3 headworks)",
+          "4 rectangular primary clarifiers",
+          "CAS Plant 2 + Plants 3 & 4 aeration trains and secondary clarifiers",
+          "Blowers (Plant 2: 5; Plants 3/4: 7)",
+          "4 tertiary disk filters (peak 86,667 m3/d each duty set)",
+          "UV 3 channels (400,000 m3/d peak design)",
+          "2 primary anaerobic digesters (~16,490 m3)",
+          "Off-site Manitou Drive centrifuge dewatering",
+          "Biogas CHP ~800 kW"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 73.59,
+        "aerationDoMgL": 2.0,
+        "mlssMgL": 3000,
+        "powerKw": 3100,
+        "uvDose": 40,
+        "estimated": {
+          "powerKw": true,
+          "uvDose": true
+        }
+      },
+      "sources": [
+        {
+          "title": "WWTMP TM2 \u2014 Status of Existing Treatment Facilities and Capacity Assessment (May 2017)",
+          "url": "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+        },
+        {
+          "title": "WWTMP TM7 \u2014 Solids Treatment Alternatives (May 2018)",
+          "url": "https://www.regionofwaterloo.ca/media/p4gperzv/ws2018v3-tech_memo_7-solids_treatment_alternatives-may_2018.pdf"
+        },
+        {
+          "title": "2024 Water and Wastewater Monitoring Report",
+          "url": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/sm1dzkby/2024-water-and-wastewater-monitoring-report-final-s-access.pdf"
+        },
+        {
+          "title": "Kitchener WWTP Upgrades (Region project page)",
+          "url": "https://www.regionofwaterloo.ca/programs-and-services/water-and-wastewater/projects/kitchener-wastewater-treatment-plant-upgrades/"
+        },
+        {
+          "title": "GRCA 2023 Watershed Overview of WWTP Performance",
+          "url": "https://www.grandriver.ca/media/rjzjqnfr/2023-wwtp-summary-report.pdf"
+        }
+      ],
+      "scadaProfile": "municipal"
+    },
+    {
+      "id": "galt",
+      "name": "Galt Wastewater Treatment Plant",
+      "size": "medium",
+      "owner": "Regional Municipality of Waterloo",
+      "operator": "Ontario Clean Water Agency (OCWA)",
+      "address": "Cambridge, ON (Galt service area; OSM footprint near Grand River)",
+      "receiver": "Grand River",
+      "location": {
+        "lat": 43.423,
+        "lon": -80.3293
+      },
+      "capacity": {
+        "avgMld": 56.8,
+        "peakMld": 171.1,
+        "unit": "MLD",
+        "notes": "Stage 1 rated ADF 56,800 m3/d; peak 171,100 m3/d; ECA allows Stage 2 76,000 m3/d ADF."
+      },
+      "process": [
+        "screening",
+        "grit",
+        "primary",
+        "activated_sludge",
+        "clarifier",
+        "tertiary_filtration",
+        "chemical_p_removal",
+        "uv",
+        "anaerobic_digestion",
+        "centrifuge_dewatering",
+        "chp"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 210,
+          "tssMgL": 260,
+          "tpMgL": 6.0,
+          "nh3OrTknMgL": 40,
+          "nh3Label": "TKN",
+          "period": "2012-2014 avg (TM2 Table 16)"
+        },
+        "effluent": {
+          "bodMgL": 2.6,
+          "tssMgL": 6.4,
+          "tpMgL": 0.32,
+          "nh3MgL": 0.3,
+          "period": "2012-2014 avg (TM2 Table 17)"
+        },
+        "ecaObjectivesMgL": {
+          "bod": 15.0,
+          "tss": 15.0,
+          "tp": 0.6,
+          "tan": 2.0,
+          "stage": "Stage 1"
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 1010,
+        "intensityEstimated": true,
+        "chpKw": null,
+        "chpNotes": "CHP installed as part of Region three-plant cogeneration program (with Kitchener and Waterloo); unit size not separately published in TM7 excerpt.",
+        "majorEquipment": [
+          "Raw sewage PS (firm ~171,115 m3/d)",
+          "Bar screens + aerated grit",
+          "Plant A/B primary clarifiers",
+          "CAS Plant A/B aeration + secondary clarifiers",
+          "Tertiary cloth-media filters + UV",
+          "Anaerobic digesters + centrifuges",
+          "Biogas CHP (shared program)"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 26.44,
+        "aerationDoMgL": 2.0,
+        "mlssMgL": 3500,
+        "powerKw": 1100,
+        "uvDose": 40,
+        "estimated": {
+          "powerKw": true,
+          "uvDose": true
+        }
+      },
+      "sources": [
+        {
+          "title": "WWTMP TM2 \u2014 Galt WWTP section",
+          "url": "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+        },
+        {
+          "title": "2024 Water and Wastewater Monitoring Report",
+          "url": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/sm1dzkby/2024-water-and-wastewater-monitoring-report-final-s-access.pdf"
+        }
+      ],
+      "scadaProfile": "municipal"
+    },
+    {
+      "id": "hamilton-woodward",
+      "name": "Woodward Avenue Wastewater Treatment Plant",
+      "size": "xlarge",
+      "owner": "City of Hamilton",
+      "operator": "City of Hamilton (Hamilton Water)",
+      "address": "700 Woodward Avenue, Hamilton, ON L8H 6P4",
+      "receiver": "Red Hill Creek \u2192 Hamilton Harbour (Lake Ontario)",
+      "location": {
+        "lat": 43.2532,
+        "lon": -79.7716
+      },
+      "capacity": {
+        "avgMld": 409,
+        "peakMld": 614,
+        "unit": "MLD",
+        "notes": "Current rated average day capacity 409 MLD; peak full-treatment capacity 614 MLD (City of Hamilton / Phase 2 project pages; AECOM). Phase 2 expansion targets 500 MLD avg / 1,000 MLD peak (Jacobs 2024). Raw wastewater PS firm capacity up to ~1,700 MLD is conveyance, not treatment. Treats ~96% of Hamilton wastewater."
+      },
+      "process": [
+        "screening",
+        "grit",
+        "primary",
+        "activated_sludge",
+        "clarifier",
+        "tertiary_filtration",
+        "chemical_p_removal",
+        "chlorine_disinfection",
+        "anaerobic_digestion",
+        "chp",
+        "rng_upgrading"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 200,
+          "tssMgL": 250,
+          "tpMgL": 6.0,
+          "nh3OrTknMgL": 40,
+          "nh3Label": "TKN",
+          "period": "Typical municipal medium-strength (estimated; plant-specific annual averages not extracted from public PDF at compile time)"
+        },
+        "effluent": {
+          "bodMgL": 10,
+          "tssMgL": 6,
+          "tpMgL": 0.5,
+          "nh3MgL": 2.0,
+          "nh3Notes": "Post Phase-1 tertiary: TSS monthly limit tightened to 10 mg/L and annual 6 mg/L (City HW2604, 2026). Effluent values above are order-of-magnitude defaults \u2014 mark estimated.",
+          "period": "Post-tertiary ECA era (estimated operating defaults)",
+          "estimated": {
+            "bodMgL": true,
+            "tssMgL": true,
+            "tpMgL": true,
+            "nh3MgL": true
+          }
+        },
+        "ecaObjectivesMgL": {
+          "tssMonthly": 10.0,
+          "tssAnnual": 6.0,
+          "notes": "TSS limits after tertiary commissioning (fall 2024) per City Communication Update HW2604; full ECA schedule not reproduced here."
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 1010,
+        "intensityEstimated": true,
+        "intensitySource": "Ontario WWTP median 1.01 eMWh/ML (Save on Energy) \u2014 plant-specific kWh/ML not published in reviewed City pages",
+        "chpKw": 1600,
+        "chpSource": "Municipal Biogas Association / City: 1.6 MW digester-gas cogeneration (HRPI); plus Greenlane RNG upgrader for surplus biogas",
+        "majorEquipment": [
+          "Raw wastewater pumping station (Phase 1 rebuild; firm capacity cited ~1,700 MLD conveyance)",
+          "Preliminary screening + grit",
+          "Primary clarifiers",
+          "North/South conventional activated sludge secondary plants (nitrification upgrades Phase 1)",
+          "Tertiary cloth-media filtration (commissioned ~2022\u20132024)",
+          "Chlorine contact / disinfection + Red Hill Creek outfall",
+          "Anaerobic digesters (primary + secondary) + biosolids/thermal drying program",
+          "1.6 MW biogas CHP + RNG purification/injection"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 300,
+        "aerationDoMgL": 2.0,
+        "mlssMgL": 3000,
+        "powerKw": 12600,
+        "uvDose": 0,
+        "estimated": {
+          "influentFlowMld": true,
+          "powerKw": true,
+          "uvDose": true
+        }
+      },
+      "sources": [
+        {
+          "title": "City of Hamilton \u2014 Wastewater Systems (Woodward capacity & process overview)",
+          "url": "https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems"
+        },
+        {
+          "title": "City of Hamilton \u2014 Woodward Wastewater Treatment Plant Upgrades (Phase 2 409\u2192500 / 614\u21921000 MLD)",
+          "url": "https://www.hamilton.ca/home-neighbourhood/environmental-stewardship/our-harbour/woodward-wastewater-treatment-plant"
+        },
+        {
+          "title": "Jacobs \u2014 Woodward Avenue WWTP Phase 2 Expansion press release (May 2024)",
+          "url": "https://www.jacobs.com/newsroom/press-release/jacobs-design-wastewater-treatment-plant-expansion-one-canadas-largest"
+        },
+        {
+          "title": "AECOM \u2014 Woodward Avenue WWTP Expansion and Upgrades (409 / 614 ML/d)",
+          "url": "https://aecom.com/tw/projects/woodward-avenue-wastewater-treatment-plant-expansion-upgrades/?lang=en"
+        },
+        {
+          "title": "City of Hamilton \u2014 Woodward WWTP Effluent Compliance update HW2604 (July 2026)",
+          "url": "https://www.hamilton.ca/sites/default/files/2026-07/Comm-update-WWTP-Effluent-Compliance-%28HW2604%29.pdf"
+        },
+        {
+          "title": "Municipal Biogas Association \u2014 Hamilton RNG Generation project snapshot (1.6 MW CHP)",
+          "url": "https://municipalbiogas.ca/wp-content/uploads/2024/03/MunicipalBiogas-ProjectSnapshot-Hamilton.pdf"
+        }
+      ],
+      "scadaProfile": "municipal"
+    },
+    {
+      "id": "toronto-ashbridges-bay",
+      "name": "Ashbridges Bay Wastewater Treatment Plant",
+      "size": "xlarge",
+      "owner": "City of Toronto",
+      "operator": "City of Toronto (Toronto Water)",
+      "address": "9 Leslie Street, Toronto, ON (raw sewage PS also at 1091 Eastern Avenue)",
+      "receiver": "Lake Ontario (diffuser outfall ~1000 m offshore; new outfall under construction)",
+      "location": {
+        "lat": 43.6571,
+        "lon": -79.3192
+      },
+      "capacity": {
+        "avgMld": 818,
+        "peakMld": 3923,
+        "unit": "MLD",
+        "notes": "Rated average secondary treatment capacity 818,000 m3/d (818 MLD) per City of Toronto 2024 Annual Report / ECA 0574-CQ6J5H. peakMld uses new outfall peak hydraulic design 3,923 MLD at high lake level (Hatch / ABTP EA) \u2014 NOT secondary treatment peak; secondary clarifiers bypass at wet-weather peaks (e.g. observed ~1,754\u20132,588 MLD). Largest WWTP in Toronto; among Canada's largest."
+      },
+      "process": [
+        "screening",
+        "grit",
+        "primary",
+        "activated_sludge",
+        "clarifier",
+        "chemical_p_removal",
+        "chlorine_disinfection",
+        "uv",
+        "was_thickening",
+        "anaerobic_digestion",
+        "centrifuge_dewatering",
+        "pelletization"
+      ],
+      "waterQuality": {
+        "influent": {
+          "bodMgL": 202.8,
+          "tssMgL": 295.8,
+          "tpMgL": 6.9,
+          "nh3OrTknMgL": 45.4,
+          "nh3Label": "TKN",
+          "period": "2024 annual average (City of Toronto ABTP 2024 Annual Report Table 2 / App C)"
+        },
+        "effluent": {
+          "bodMgL": 7.3,
+          "tssMgL": 15.9,
+          "tpMgL": 0.8,
+          "nh3MgL": 9.8,
+          "nh3Notes": "Secondary effluent annual avg TAN 9.8 mg/L (2024 App C); final effluent cBOD/TSS/TP ~8.8 / 18.2 / 0.8. Disinfection: NaOCl (UV facility under construction).",
+          "period": "2024 secondary effluent annual average (cBOD/TSS/TP); TAN from App C"
+        },
+        "ecaObjectivesMgL": {
+          "cbod": 25.0,
+          "tss": 25.0,
+          "tpMonthly": 1.0,
+          "secondaryObjectiveCbod": 15.0,
+          "secondaryObjectiveTss": 15.0,
+          "secondaryObjectiveTpMonthly": 0.9,
+          "notes": "ECA Sewage No. 0574-CQ6J5H Schedule C (cited in 2024 Annual Report)"
+        }
+      },
+      "energy": {
+        "intensityKwhPerMl": 639,
+        "intensityEstimated": false,
+        "intensitySource": "2024 hydro 134.7 GWh / 210,921 ML annual flow \u2248 639 kWh/ML (City ABTP 2024 Annual Report \u00a76)",
+        "chpKw": null,
+        "chpNotes": "Digester gas used for process/space heating; historical Toronto Hydro biogas CHP proposal (~8\u201310 MW) \u2014 current on-site CHP kW not confirmed in 2024 annual report.",
+        "majorEquipment": [
+          "M & T Buildings raw sewage pumping + gravity Coxwell Trunk",
+          "P & D Buildings screens + aerated grit (FeCl2 dosing)",
+          "12 primary clarification tanks",
+          "11 step-feed aeration tanks + 10 blowers; 11 final clarifiers",
+          "DAF WAS thickening (10 tanks) + polymer",
+          "20 primary anaerobic digesters (mesophilic)",
+          "12 dewatering centrifuges + truck loading / on-site pelletizer",
+          "NaOCl disinfection (UV facility in construction); Lake Ontario outfall (~1000 m) + new 3,923 MLD outfall project"
+        ]
+      },
+      "scadaDefaults": {
+        "influentFlowMld": 576.3,
+        "aerationDoMgL": 2.0,
+        "mlssMgL": 3065,
+        "powerKw": 15400,
+        "uvDose": 40,
+        "estimated": {
+          "powerKw": true,
+          "uvDose": true
+        }
+      },
+      "sources": [
+        {
+          "title": "Ashbridges Bay Wastewater Treatment Plant 2024 Annual Report (City of Toronto)",
+          "url": "https://www.toronto.ca/wp-content/uploads/2025/04/9617-2024-TAB-Annual-Report-Final-AODA.pdf"
+        },
+        {
+          "title": "City of Toronto \u2014 Ashbridges Bay Treatment Plant (facility page)",
+          "url": "https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/"
+        },
+        {
+          "title": "Hatch \u2014 Ashbridges Bay Treatment Plant Outfall (3,923 MLD peak)",
+          "url": "https://www.hatch.com/Projects/Infrastructure/Ashbridges-Bay-Treatment-Plant-Outfall"
+        },
+        {
+          "title": "Ashbridges Bay Treatment Plant 2025 Annual Report (City of Toronto)",
+          "url": "https://www.toronto.ca/wp-content/uploads/2026/06/9914-2025-TAB-Annual-Report-Final-AODA.pdf"
+        }
+      ],
+      "scadaProfile": "municipal"
+    }
+  ],
+  "notes": "Capacities and process trains from Region of Waterloo 2018 WWTMP TM2 and 2024 Water and Wastewater Monitoring Report; plus City of Hamilton Woodward (409/614 MLD) and City of Toronto Ashbridges Bay (818 MLD rated; 3,923 MLD outfall peak) public reports; plus illustrative OBC Class 4 farm septic (2,000 L/d / 0.002 MLD for 4-bedroom). Locations from OpenStreetMap (ODbL) where available; farm lat/lon is illustrative near St. Jacobs. Influent/effluent: Waterloo Region historic OCWA averages in TM2; Ashbridges Bay 2024 City annual report; Woodward WQ largely estimated pending annual-report extraction. powerKw/uvDose in scadaDefaults often estimated. Size tiers: micro < small < medium < large < xlarge."
+}

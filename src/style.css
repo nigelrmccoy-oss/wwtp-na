@@ -127,3 +127,88 @@ button:hover{filter:brightness(1.08)}
 .mode-badge[data-mode="walk"]{
   border-color:#5a4a20;background:rgba(36,28,10,.85);color:#ffd666;
 }
+
+/* v0.2 — tutorial, hover tips, autopilot, textures attribution */
+.btn-secondary{
+  width:100%;margin-top:.55rem;padding:.5rem .7rem;border-radius:8px;
+  border:1px solid #3a4a66;background:#1a2840;color:#c8d8f0;font-size:.92rem;
+  font-weight:600;cursor:pointer;
+}
+.btn-secondary:hover{filter:brightness(1.1);background:#223050}
+
+.tutorial-modal{
+  position:fixed;inset:0;z-index:40;background:rgba(4,8,16,.72);
+  display:flex;align-items:center;justify-content:center;padding:1rem;
+  backdrop-filter:blur(4px);
+}
+.tutorial-panel{
+  width:min(560px,96vw);max-height:min(86vh,720px);overflow:auto;
+  background:rgba(12,18,32,.96);border:1px solid #3a4a66;border-radius:12px;
+  padding:1.1rem 1.25rem 1.2rem;box-shadow:0 16px 48px rgba(0,0,0,.5);
+}
+.tutorial-head{display:flex;justify-content:space-between;align-items:center;gap:.75rem}
+.tutorial-head h2{font-size:1.15rem;margin:0}
+.tutorial-x{
+  width:auto;margin:0;padding:.15rem .55rem;font-size:1.35rem;line-height:1;
+  background:transparent;border:1px solid #3a4a66;border-radius:6px;color:#a0b0c8;cursor:pointer;
+}
+.tutorial-lead{font-size:.8rem;opacity:.8;margin:.55rem 0 .75rem;line-height:1.4}
+.tutorial-list{display:flex;flex-direction:column;gap:6px}
+.tutorial-row{
+  display:grid;grid-template-columns:88px 1fr;gap:.55rem;
+  background:rgba(20,32,48,.55);border:1px solid #2a3a50;border-radius:8px;padding:.45rem .55rem;
+}
+.tutorial-acro{font-weight:800;font-size:.78rem;color:#8dffc0;letter-spacing:.03em;padding-top:.15rem}
+.tutorial-exp{font-weight:700;font-size:.82rem;color:#e8f0ff}
+.tutorial-blurb{font-size:.75rem;opacity:.75;line-height:1.35;margin-top:.15rem}
+.tutorial-actions{margin-top:.9rem}
+.tutorial-primary{
+  width:100%;margin:0;padding:.55rem .7rem;border-radius:8px;border:none;
+  background:linear-gradient(180deg,#2a8a6a,#1a6a4e);color:#e8eef8;font-weight:700;cursor:pointer;
+}
+
+.hover-tip{
+  pointer-events:auto;position:fixed;z-index:20;
+  width:min(280px,70vw);padding:.55rem .65rem;
+  background:rgba(10,16,26,.94);border:1px solid #4a6a88;border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:12px;color:#dce8f4;
+}
+.hover-title{font-weight:800;font-size:13px;color:#9fd6ff;margin-bottom:.25rem}
+.hover-blurb{opacity:.88;line-height:1.4;font-size:11.5px}
+.hover-open{
+  margin-top:.5rem;width:100%;padding:.35rem .5rem;font-size:11px;font-weight:700;
+  background:#1a5a45;border:1px solid #2a8a6a;border-radius:4px;color:#c8ffe0;cursor:pointer;
+}
+.hover-open:hover{filter:brightness(1.1)}
+
+.autopilot-badge{
+  font-size:10px;font-weight:800;letter-spacing:.06em;
+  padding:.15rem .4rem;border-radius:3px;margin:0 .35rem;
+  background:#2a3038;color:#8a9aaa;border:1px solid #3a4a58;
+}
+.autopilot-badge.on{background:#1a4a30;color:#7dffb0;border-color:#2a8a6a;animation:apPulse 1.6s ease-in-out infinite}
+@keyframes apPulse{50%{opacity:.7}}
+
+.autopilot-toggle{font-weight:700;color:#9fd6ff!important;margin-bottom:.25rem!important}
+
+.scada-hl{
+  outline:2px solid #ffcc33;outline-offset:2px;border-radius:4px;
+  background:rgba(255,200,50,.12)!important;animation:hlFlash .6s ease;
+}
+@keyframes hlFlash{from{background:rgba(255,200,50,.35)!important}}
+
+.geo-attr{
+  position:absolute;z-index:4;left:12px;bottom:12px;
+  font-size:10px;opacity:.7;max-width:min(420px,70vw);line-height:1.3;
+  background:rgba(0,0,0,.4);padding:.25rem .45rem;border-radius:4px;pointer-events:none;
+  color:#c0d0e0;
+}
+
+.ap-hud-badge{
+  position:absolute;z-index:4;left:12px;top:48px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px;font-weight:800;letter-spacing:.1em;
+  padding:.35rem .65rem;border-radius:4px;
+  border:1px solid #2a8a6a;background:rgba(12,40,28,.88);color:#7dffb0;
+  pointer-events:none;text-transform:uppercase;
+}

@@ -1,0 +1,103 @@
+[
+  {
+    "id": "farm-septic",
+    "osmReal": 80,
+    "thin": false,
+    "dem": "Open-Meteo elevation API",
+    "kinds": {
+      "road": 24,
+      "building": 30,
+      "water": 1,
+      "waterway": 11,
+      "farm": 12,
+      "landuse": 2
+    }
+  },
+  {
+    "id": "galt",
+    "osmReal": 591,
+    "thin": false,
+    "dem": "procedural noise (seeded by plant id)",
+    "kinds": {
+      "road": 280,
+      "landuse": 40,
+      "building": 220,
+      "water": 10,
+      "waterway": 36,
+      "wwtp": 1,
+      "farm": 4
+    }
+  },
+  {
+    "id": "hamilton-woodward",
+    "osmReal": 814,
+    "thin": false,
+    "dem": "procedural noise (seeded by plant id)",
+    "kinds": {
+      "wwtp": 1,
+      "road": 559,
+      "building": 192,
+      "water": 23,
+      "waterway": 13,
+      "landuse": 26
+    }
+  },
+  {
+    "id": "kitchener",
+    "osmReal": 584,
+    "thin": false,
+    "dem": "procedural noise (seeded by plant id)",
+    "kinds": {
+      "road": 280,
+      "water": 24,
+      "waterway": 18,
+      "building": 220,
+      "landuse": 40,
+      "wwtp": 1,
+      "farm": 1
+    }
+  },
+  {
+    "id": "st-jacobs",
+    "osmReal": 814,
+    "thin": false,
+    "dem": "Open-Meteo elevation API",
+    "kinds": {
+      "wwtp": 1,
+      "road": 480,
+      "building": 259,
+      "water": 6,
+      "waterway": 12,
+      "farm": 33,
+      "landuse": 23
+    }
+  },
+  {
+    "id": "toronto-ashbridges-bay",
+    "osmReal": 551,
+    "thin": false,
+    "dem": "procedural noise (seeded by plant id)",
+    "kinds": {
+      "road": 280,
+      "landuse": 40,
+      "building": 220,
+      "water": 8,
+      "wwtp": 1,
+      "waterway": 2
+    }
+  },
+  {
+    "id": "waterloo",
+    "osmReal": 585,
+    "thin": false,
+    "dem": "Open-Meteo elevation API",
+    "kinds": {
+      "road": 280,
+      "waterway": 30,
+      "water": 14,
+      "landuse": 40,
+      "building": 220,
+      "wwtp": 1
+    }
+  }
+]

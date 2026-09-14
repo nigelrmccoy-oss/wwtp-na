@@ -1,10 +1,17 @@
 /**
- * Three.js plant site scene.
- * v0.1: procedural ground + fog + sky.
- * HOOK: later swap groundMesh geometry for OSM/DEM bake (see buildGround comments).
+ * Three.js plant site scene — v0.2: textured units, OSM/DEM surroundings, hover.
  */
 import * as THREE from 'three';
 import type { PlantConfig } from '../sim/processModel';
+import type { PlantTextures } from './textures';
+import {
+  concreteMat,
+  asphaltMat,
+  waterMat,
+  metalMat,
+} from './textures';
+import { buildTerrainGround, demFromGeoPack } from './terrain';
+import { buildOsmSurroundings, type PlantGeoPack } from './osmBake';
 
 export interface UnitInfo {
   id: string;
@@ -13,14 +20,23 @@ export interface UnitInfo {
 }
 
 export type UnitSelectCb = (unit: UnitInfo | null) => void;
+export type UnitHoverCb = (unit: UnitInfo | null, clientX: number, clientY: number) => void;
+
+export interface PlantSceneOpts {
+  textures: PlantTextures;
+  geo: PlantGeoPack | null;
+  onHover?: UnitHoverCb;
+}
 
 export class PlantScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly units: UnitInfo[] = [];
+  attribution = '';
 
   private root: THREE.Group;
+  private processRoot: THREE.Group;
   private keys = new Set<string>();
   private yaw = 0.6;
   private pitch = -0.42;
@@ -33,6 +49,7 @@ export class PlantScene {
   private selected: UnitInfo | null = null;
   private selectionRing: THREE.Mesh;
   private onSelect: UnitSelectCb;
+  private onHover: UnitHoverCb | null;
   private clock = new THREE.Clock();
   private disposed = false;
   private plant: PlantConfig;
@@ -43,29 +60,62 @@ export class PlantScene {
   private pointerDownX = 0;
   private pointerDownY = 0;
   private pointerMoved = false;
+  private textures: PlantTextures;
+  private hoverUnitId: string | null = null;
+  private mats: {
+    concrete: THREE.MeshStandardMaterial;
+    concreteAlt: THREE.MeshStandardMaterial;
+    asphalt: THREE.MeshStandardMaterial;
+    walk: THREE.MeshStandardMaterial;
+    water: THREE.MeshStandardMaterial;
+    waterDeep: THREE.MeshStandardMaterial;
+    metal: THREE.MeshStandardMaterial;
+    digester: THREE.MeshStandardMaterial;
+    roof: THREE.MeshStandardMaterial;
+  };
 
   constructor(
     canvas: HTMLCanvasElement,
     plant: PlantConfig,
     onSelect: UnitSelectCb,
     onModeChange?: (mode: 'orbit' | 'walk') => void,
+    opts?: PlantSceneOpts,
   ) {
     this.plant = plant;
     this.onSelect = onSelect;
     this.onModeChange = onModeChange ?? null;
+    this.onHover = opts?.onHover ?? null;
+    this.textures = opts!.textures;
+
+    this.mats = {
+      concrete: concreteMat(this.textures, 0xffffff),
+      concreteAlt: concreteMat(this.textures, 0xd8dde2),
+      asphalt: asphaltMat(this.textures),
+      walk: asphaltMat(this.textures),
+      water: waterMat(this.textures, 0xffffff),
+      waterDeep: waterMat(this.textures, 0xa0c8e0),
+      metal: metalMat(this.textures, 0xffffff),
+      digester: metalMat(this.textures, 0xc0c4c8),
+      roof: metalMat(this.textures, 0x8890a0),
+    };
+    this.mats.walk.color = new THREE.Color(0xb0b4b0);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
     this.renderer.setClearColor(0x7aa0c0, 1);
     this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0022);
+    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0018);
 
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 800);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 900);
     this.root = new THREE.Group();
+    this.processRoot = new THREE.Group();
+    this.processRoot.name = 'process-train';
     this.scene.add(this.root);
+    this.root.add(this.processRoot);
 
     this.selectionRing = new THREE.Mesh(
       new THREE.RingGeometry(1.2, 1.55, 32),
@@ -75,7 +125,7 @@ export class PlantScene {
     this.selectionRing.visible = false;
     this.scene.add(this.selectionRing);
 
-    this.buildEnvironment();
+    this.buildEnvironment(opts?.geo ?? null);
     this.buildPlantLayout();
     this.bindInput(canvas);
     this.onResize();
@@ -120,98 +170,65 @@ export class PlantScene {
     this.renderer.setSize(w, h, false);
   };
 
-  private buildEnvironment(): void {
-    // Sky hemisphere
-    const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x3a4a28, 0.85);
+  private buildEnvironment(geo: PlantGeoPack | null): void {
+    const hemi = new THREE.HemisphereLight(0xd0e8ff, 0x3a4a28, 0.95);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff2d6, 1.05);
-    sun.position.set(60, 90, 40);
+    const sun = new THREE.DirectionalLight(0xfff2d6, 1.15);
+    sun.position.set(70, 100, 45);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
-    sun.shadow.camera.far = 250;
-    sun.shadow.camera.left = -100;
-    sun.shadow.camera.right = 100;
-    sun.shadow.camera.top = 100;
-    sun.shadow.camera.bottom = -100;
+    sun.shadow.camera.far = 320;
+    sun.shadow.camera.left = -140;
+    sun.shadow.camera.right = 140;
+    sun.shadow.camera.top = 140;
+    sun.shadow.camera.bottom = -140;
+    sun.shadow.bias = -0.0002;
     this.scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xb0c8e0, 0.25);
+    fill.position.set(-40, 30, -20);
+    this.scene.add(fill);
 
-    // HOOK (future OSM/DEM): replace buildGround() output with geotiff/DEM mesh + OSM footprints.
-    // Do not scrape Street View / Apple Maps. Prefer open DEM (e.g. Contours/SRTM) baked offline.
-    this.root.add(this.buildGround());
+    const size = this.plant.size;
+    const padW =
+      (size === 'xlarge' || size === 'extra-large' ? 140 : size === 'large' ? 125 : 110) *
+      this.plant.layoutScale;
+    const padD =
+      (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) *
+      this.plant.layoutScale;
 
-    // Soft distant hills
-    const hillMat = new THREE.MeshStandardMaterial({ color: 0x4d6a3e, roughness: 0.9, metalness: 0.0 });
-    for (const [x, z, sx, sz, h] of [
-      [-90, -70, 40, 30, 8],
-      [100, -50, 35, 40, 6],
-      [-70, 90, 50, 25, 5],
-    ] as const) {
-      const hill = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), hillMat);
-      hill.position.set(x, -0.5, z);
-      hill.scale.set(sx, h, sz);
-      hill.receiveShadow = true;
-      this.root.add(hill);
+    const dem = demFromGeoPack(geo);
+    this.root.add(buildTerrainGround(this.plant.id, dem, this.textures, padW, padD));
+
+    const osm = buildOsmSurroundings(geo, this.textures, this.plant.id);
+    this.attribution = osm.attribution;
+    this.root.add(osm.group);
+
+    // Align process train toward OSM WWTP footprint when present
+    if (osm.wwtpCentroid && osm.wwtpCentroid.length() < 180) {
+      const offset = osm.wwtpCentroid.clone().multiplyScalar(0.35);
+      this.processRoot.position.x += offset.x;
+      this.processRoot.position.z += offset.z;
+      this.processRoot.rotation.y = osm.layoutYaw * 0.5;
     }
-  }
 
-  private buildGround(): THREE.Object3D {
-    const group = new THREE.Group();
-    const size = 220;
-    const seg = 64;
-    const geo = new THREE.PlaneGeometry(size, size, seg, seg);
-    geo.rotateX(-Math.PI / 2);
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      // Subtle procedural height — stand-in until DEM bake
-      const h =
-        Math.sin(x * 0.035) * Math.cos(z * 0.028) * 0.55 +
-        Math.sin(x * 0.01 + z * 0.012) * 1.1 -
-        0.15;
-      pos.setY(i, h);
+    for (const h of osm.hoverables) {
+      this.units.push({ id: h.id, label: h.label, mesh: h.mesh });
     }
-    geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x5a7048,
-      roughness: 0.95,
-      metalness: 0.0,
-      flatShading: false,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.receiveShadow = true;
-    group.add(mesh);
-
-    // Site pad (gravel / asphalt yard)
-    const padW = (this.plant.size === 'xlarge' || this.plant.size === 'extra-large' ? 140 : this.plant.size === 'large' ? 125 : 110) * this.plant.layoutScale;
-    const padD = (this.plant.size === 'xlarge' || this.plant.size === 'extra-large' ? 100 : this.plant.size === 'large' ? 90 : 80) * this.plant.layoutScale;
-    const pad = new THREE.Mesh(
-      new THREE.PlaneGeometry(padW, padD),
-      new THREE.MeshStandardMaterial({ color: 0x5a5e58, roughness: 0.9 }),
-    );
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.y = 0.08;
-    pad.receiveShadow = true;
-    group.add(pad);
-
-    return group;
   }
 
   private buildPlantLayout(): void {
     const s = this.plant.layoutScale;
     const size = this.plant.size;
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3c3e, roughness: 0.85 });
-    const walkMat = new THREE.MeshStandardMaterial({ color: 0x6e716c, roughness: 0.9 });
+    const roadMat = this.mats.asphalt;
+    const walkMat = this.mats.walk;
 
-    // Main road spine — longer for large/xlarge footprints
     const spineLen = (size === 'xlarge' || size === 'extra-large' ? 120 : size === 'large' ? 105 : 95) * s;
     const road = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, spineLen), roadMat);
-    road.position.set(0, 0.12, 0);
+    road.position.set(0, 0.14, 0);
     road.receiveShadow = true;
-    this.root.add(road);
+    this.processRoot.add(road);
 
-    // Cross walkways — denser on larger sites
     const walkZs =
       size === 'xlarge' || size === 'extra-large'
         ? [-40, -18, 5, 28, 48]
@@ -220,14 +237,12 @@ export class PlantScene {
           : [-28, 0, 28];
     for (const z of walkZs.map((v) => v * s)) {
       const walk = new THREE.Mesh(new THREE.BoxGeometry(70 * s, 0.08, 2.2), walkMat);
-      walk.position.set(8 * s, 0.1, z);
-      this.root.add(walk);
+      walk.position.set(8 * s, 0.12, z);
+      this.processRoot.add(walk);
     }
 
-    // Dual-train offset for large+ municipal plants (silhouette hint vs single Lego row)
     const trainOffsetZ = size === 'xlarge' || size === 'extra-large' ? 14 : size === 'large' ? 10 : 0;
 
-    // Process train — septic micro site vs municipal WWTP
     const units: { id: string; label: string; kind: string; x: number; z: number; count: number }[] =
       this.plant.isSeptic
         ? [
@@ -279,7 +294,6 @@ export class PlantScene {
             { id: 'solids', label: 'Solids Handling', kind: 'rect', x: -10, z: 22, count: 1 },
           ];
 
-    // Optional tertiary / digester silhouette markers from process[]
     if (!this.plant.isSeptic && this.plant.research.process.includes('tertiary_filtration')) {
       units.push({ id: 'tertiary', label: 'Tertiary Filters', kind: 'basin', x: 42, z: 18, count: size === 'small' ? 1 : 2 });
     }
@@ -297,7 +311,10 @@ export class PlantScene {
     for (const u of units) {
       if (u.count <= 0 && u.kind !== 'rect') continue;
       const group = new THREE.Group();
-      const zOff = !this.plant.isSeptic && trainOffsetZ && u.id !== 'solids' && u.id !== 'digesters' ? -trainOffsetZ * 0.15 : 0;
+      const zOff =
+        !this.plant.isSeptic && trainOffsetZ && u.id !== 'solids' && u.id !== 'digesters'
+          ? -trainOffsetZ * 0.15
+          : 0;
       group.position.set(u.x * s, 0, (u.z + zOff) * s);
       group.userData.unitId = u.id;
 
@@ -313,11 +330,7 @@ export class PlantScene {
           const h = u.id === 'digesters' ? 5.5 : 2.4;
           const mesh = new THREE.Mesh(
             new THREE.CylinderGeometry(r, r * (u.id === 'digesters' ? 0.85 : 1), h, 24),
-            new THREE.MeshStandardMaterial({
-              color: u.id === 'digesters' ? 0x8a9098 : 0xb8c0c8,
-              roughness: 0.55,
-              metalness: 0.15,
-            }),
+            u.id === 'digesters' ? this.mats.digester : this.mats.concrete,
           );
           mesh.position.set((col - (perRow - 1) / 2) * spacing, h / 2, row * spacing * 0.85);
           mesh.castShadow = true;
@@ -325,20 +338,16 @@ export class PlantScene {
           mesh.userData.unitId = u.id;
           group.add(mesh);
           if (u.id !== 'digesters') {
-            const water = new THREE.Mesh(
-              new THREE.CircleGeometry(r * 0.92, 24),
-              new THREE.MeshStandardMaterial({ color: 0x3a7ca5, roughness: 0.25, metalness: 0.3 }),
-            );
+            const water = new THREE.Mesh(new THREE.CircleGeometry(r * 0.92, 24), this.mats.water);
             water.rotation.x = -Math.PI / 2;
             water.position.set(mesh.position.x, h - 0.25, mesh.position.z);
             group.add(water);
           }
         }
       } else if (u.kind === 'ditch') {
-        // Oval oxidation-ditch silhouette (not a rectangular aeration bank)
         const ditch = new THREE.Mesh(
           new THREE.TorusGeometry(9 * Math.min(1.1, s), 3.2, 12, 32),
-          new THREE.MeshStandardMaterial({ color: 0x7a8a90, roughness: 0.7 }),
+          this.mats.concreteAlt,
         );
         ditch.rotation.x = Math.PI / 2;
         ditch.position.y = 1.2;
@@ -347,16 +356,13 @@ export class PlantScene {
         group.add(ditch);
         const water = new THREE.Mesh(
           new THREE.TorusGeometry(9 * Math.min(1.1, s), 2.6, 10, 32),
-          new THREE.MeshStandardMaterial({ color: 0x2f6f8f, roughness: 0.3 }),
+          this.mats.waterDeep,
         );
         water.rotation.x = Math.PI / 2;
         water.position.y = 1.55;
         group.add(water);
         for (const side of [-1, 1]) {
-          const rotor = new THREE.Mesh(
-            new THREE.BoxGeometry(5, 1.2, 1.4),
-            new THREE.MeshStandardMaterial({ color: 0x556070, metalness: 0.35, roughness: 0.45 }),
-          );
+          const rotor = new THREE.Mesh(new THREE.BoxGeometry(5, 1.2, 1.4), this.mats.metal);
           rotor.position.set(side * 9 * Math.min(1.1, s), 2.4, 0);
           rotor.userData.unitId = u.id;
           group.add(rotor);
@@ -366,25 +372,19 @@ export class PlantScene {
         const w = u.id === 'tertiary' ? 5 : 6.5;
         const d = u.id === 'tertiary' ? 10 : 14;
         for (let i = 0; i < n; i++) {
-          const basin = new THREE.Mesh(
-            new THREE.BoxGeometry(w, 2.8, d),
-            new THREE.MeshStandardMaterial({ color: u.id === 'tertiary' ? 0x6a7a88 : 0x8a9aa0, roughness: 0.7 }),
-          );
+          const basin = new THREE.Mesh(new THREE.BoxGeometry(w, 2.8, d), this.mats.concreteAlt);
           basin.position.set((i - (n - 1) / 2) * (w + 1.2), 1.4, 0);
           basin.castShadow = true;
           basin.userData.unitId = u.id;
           group.add(basin);
-          const water = new THREE.Mesh(
-            new THREE.BoxGeometry(w * 0.9, 0.15, d * 0.9),
-            new THREE.MeshStandardMaterial({ color: 0x2f6f8f, roughness: 0.3 }),
-          );
+          const water = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.15, d * 0.9), this.mats.waterDeep);
           water.position.set(basin.position.x, 2.5, 0);
           group.add(water);
         }
       } else if (u.kind === 'uv') {
         const channel = new THREE.Mesh(
           new THREE.BoxGeometry(10 + u.count * 1.5, 2.2, 6),
-          new THREE.MeshStandardMaterial({ color: 0x6a7a88, roughness: 0.6 }),
+          this.mats.concreteAlt,
         );
         channel.position.y = 1.1;
         channel.castShadow = true;
@@ -393,7 +393,14 @@ export class PlantScene {
         for (let i = 0; i < u.count; i++) {
           const lamp = new THREE.Mesh(
             new THREE.BoxGeometry(0.4, 0.3, 5),
-            new THREE.MeshStandardMaterial({ color: 0xaaccff, emissive: 0x3355aa, emissiveIntensity: 0.4 }),
+            new THREE.MeshStandardMaterial({
+              color: 0xaaccff,
+              emissive: 0x3355aa,
+              emissiveIntensity: 0.4,
+              map: this.textures.metal,
+              metalness: 0.4,
+              roughness: 0.35,
+            }),
           );
           lamp.position.set(-3 + i * 2.2, 2.0, 0);
           lamp.userData.unitId = u.id;
@@ -401,36 +408,24 @@ export class PlantScene {
         }
       } else if (u.kind === 'chlorine') {
         const n = Math.max(1, u.count);
-        const channel = new THREE.Mesh(
-          new THREE.BoxGeometry(10 + n * 1.2, 2.4, 8),
-          new THREE.MeshStandardMaterial({ color: 0x5a6e78, roughness: 0.65 }),
-        );
+        const channel = new THREE.Mesh(new THREE.BoxGeometry(10 + n * 1.2, 2.4, 8), this.mats.concreteAlt);
         channel.position.y = 1.2;
         channel.castShadow = true;
         channel.userData.unitId = u.id;
         group.add(channel);
         for (let i = 0; i < n; i++) {
-          const baffle = new THREE.Mesh(
-            new THREE.BoxGeometry(0.35, 1.6, 6.5),
-            new THREE.MeshStandardMaterial({ color: 0x8a9aa4, roughness: 0.7 }),
-          );
+          const baffle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.6, 6.5), this.mats.concrete);
           baffle.position.set(-3.5 + i * 2.4, 1.5, 0);
           baffle.userData.unitId = u.id;
           group.add(baffle);
         }
-        const water = new THREE.Mesh(
-          new THREE.BoxGeometry(9 + n * 1.1, 0.12, 7),
-          new THREE.MeshStandardMaterial({ color: 0x3a8a9a, roughness: 0.25, metalness: 0.2 }),
-        );
+        const water = new THREE.Mesh(new THREE.BoxGeometry(9 + n * 1.1, 0.12, 7), this.mats.water);
         water.position.set(0, 2.15, 0);
         group.add(water);
       } else {
         const building = new THREE.Mesh(
           new THREE.BoxGeometry(u.id === 'solids' ? 16 : 12, u.id === 'solids' ? 6 : 5, 10),
-          new THREE.MeshStandardMaterial({
-            color: u.id === 'headworks' ? 0x7a8490 : 0x6e7568,
-            roughness: 0.75,
-          }),
+          this.mats.concrete,
         );
         building.position.y = u.id === 'solids' ? 3 : 2.5;
         building.castShadow = true;
@@ -438,13 +433,18 @@ export class PlantScene {
         group.add(building);
         const roof = new THREE.Mesh(
           new THREE.BoxGeometry(u.id === 'solids' ? 16.4 : 12.4, 0.35, 10.4),
-          new THREE.MeshStandardMaterial({ color: 0x3d4550, roughness: 0.8 }),
+          this.mats.roof,
         );
         roof.position.y = u.id === 'solids' ? 6.2 : 5.2;
         group.add(roof);
+        if (u.id === 'pump') {
+          const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.2, 16), this.mats.metal);
+          motor.position.set(0, 5.8, 0);
+          motor.userData.unitId = u.id;
+          group.add(motor);
+        }
       }
 
-      // Large plants: mirror a second train row for aeration/secondary silhouette
       if (
         !this.plant.isSeptic &&
         trainOffsetZ > 0 &&
@@ -457,28 +457,23 @@ export class PlantScene {
         mirror.traverse((o) => {
           if (o.userData) o.userData.unitId = u.id;
         });
-        this.root.add(mirror);
+        this.processRoot.add(mirror);
       }
 
       const label = this.makeLabel(u.label);
       label.position.set(0, u.kind === 'ditch' ? 9.5 : 8.2, 0);
       group.add(label);
 
-      this.root.add(group);
+      this.processRoot.add(group);
       this.units.push({ id: u.id, label: u.label, mesh: group });
     }
 
-    // Effluent channel stub — skip misleading outfall on septic (no surface outfall)
     if (!this.plant.isSeptic) {
-      const outfall = new THREE.Mesh(
-        new THREE.BoxGeometry(4, 0.6, 18 * s),
-        new THREE.MeshStandardMaterial({ color: 0x4a90b8, roughness: 0.4 }),
-      );
+      const outfall = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 18 * s), this.mats.waterDeep);
       outfall.position.set(58 * s, 0.4, 8 * s);
-      this.root.add(outfall);
+      this.processRoot.add(outfall);
     }
 
-    // Closer default orbit so labels/units are readable on enter
     this.orbitDist = 42 + 28 * s;
     this.orbitTarget.set(8 * s, 0, -4 * s);
     this.walkPos.set(28 * s, 2.2, 38 * s);
@@ -550,7 +545,10 @@ export class PlantScene {
       if (e.button === 0) dragging = false;
     });
     canvas.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
+      if (!dragging) {
+        this.updateHover(e.clientX, e.clientY, canvas);
+        return;
+      }
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
@@ -565,35 +563,55 @@ export class PlantScene {
       this.pitch -= dy * 0.004;
       this.pitch = Math.max(-1.2, Math.min(0.2, this.pitch));
     });
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 220);
-    }, { passive: false });
+    canvas.addEventListener('pointerleave', () => {
+      this.hoverUnitId = null;
+      this.onHover?.(null, 0, 0);
+    });
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 220);
+      },
+      { passive: false },
+    );
 
     canvas.addEventListener('click', (e) => {
-      // Ignore click-select after a drag look
       if (this.pointerMoved) return;
-      const rect = canvas.getBoundingClientRect();
-      this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      this.raycaster.setFromCamera(this.pointer, this.camera);
-      const meshes: THREE.Object3D[] = [];
-      for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
-      const hits = this.raycaster.intersectObjects(meshes, false);
-      if (hits.length) {
-        let obj: THREE.Object3D | null = hits[0].object;
-        let id: string | undefined;
-        while (obj) {
-          id = obj.userData.unitId as string | undefined;
-          if (id) break;
-          obj = obj.parent;
-        }
-        const unit = this.units.find((u) => u.id === id) ?? null;
-        this.setSelected(unit);
-      } else {
-        this.setSelected(null);
-      }
+      const unit = this.pickUnit(e.clientX, e.clientY, canvas);
+      this.setSelected(unit);
     });
+  }
+
+  private pickUnit(clientX: number, clientY: number, canvas: HTMLCanvasElement): UnitInfo | null {
+    const rect = canvas.getBoundingClientRect();
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const meshes: THREE.Object3D[] = [];
+    for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
+    const hits = this.raycaster.intersectObjects(meshes, false);
+    if (!hits.length) return null;
+    let obj: THREE.Object3D | null = hits[0].object;
+    let id: string | undefined;
+    while (obj) {
+      id = obj.userData.unitId as string | undefined;
+      if (id) break;
+      obj = obj.parent;
+    }
+    return this.units.find((u) => u.id === id) ?? null;
+  }
+
+  private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {
+    if (!this.onHover) return;
+    const unit = this.pickUnit(clientX, clientY, canvas);
+    const id = unit?.id ?? null;
+    if (id !== this.hoverUnitId) {
+      this.hoverUnitId = id;
+      this.onHover(unit, clientX, clientY);
+    } else if (unit) {
+      this.onHover(unit, clientX, clientY);
+    }
   }
 
   private setSelected(unit: UnitInfo | null): void {
@@ -624,14 +642,15 @@ export class PlantScene {
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) this.walkPos.addScaledVector(right, speed);
       this.walkPos.y = 2.2;
       this.camera.position.copy(this.walkPos);
-      const look = this.walkPos.clone().add(new THREE.Vector3(
-        -Math.sin(this.yaw) * Math.cos(this.pitch),
-        Math.sin(this.pitch),
-        -Math.cos(this.yaw) * Math.cos(this.pitch),
-      ));
+      const look = this.walkPos.clone().add(
+        new THREE.Vector3(
+          -Math.sin(this.yaw) * Math.cos(this.pitch),
+          Math.sin(this.pitch),
+          -Math.cos(this.yaw) * Math.cos(this.pitch),
+        ),
+      );
       this.camera.lookAt(look);
     } else {
-      // Orbit WASD pans target
       if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) this.orbitTarget.addScaledVector(forward, speed);
       if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) this.orbitTarget.addScaledVector(forward, -speed);
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) this.orbitTarget.addScaledVector(right, -speed);
@@ -647,7 +666,6 @@ export class PlantScene {
       this.camera.lookAt(this.orbitTarget);
     }
 
-    // Soft label billboard pulse on selection
     for (const u of this.units) {
       const spr = u.mesh.children.find((c) => c instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (spr) {

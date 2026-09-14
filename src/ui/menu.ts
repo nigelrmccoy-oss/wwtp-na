@@ -1,6 +1,7 @@
 import plantsData from '../data/plants.json';
 import { menuPlants, formatFlow, type PlantRuntime, type PlantsFile } from '../data/plantTypes';
 import { audio } from '../audio/AudioEngine';
+import { openTutorial } from './tutorial';
 
 export interface MenuSelection {
   plant: PlantRuntime;
@@ -17,9 +18,9 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
 
   root.innerHTML = `
     <div class="panel menu-panel">
-      <h1>WWTP-NA <span class="ver">v0.1</span></h1>
+      <h1>WWTP-NA <span class="ver">v0.2</span></h1>
       <p class="sub">North American wastewater operator-training sim · Ontario corridor tribute</p>
-      <p class="disclaimer">Training simulator — not affiliated with Region of Waterloo, City of Hamilton, City of Toronto, or OCWA. Capacities from public reports where cited; septic flows estimated from OBC/MOE guidance.</p>
+      <p class="disclaimer">Training simulator — not affiliated with Region of Waterloo, City of Hamilton, City of Toronto, or OCWA. Capacities from public reports where cited; septic flows estimated from OBC/MOE guidance. Map data © OpenStreetMap contributors.</p>
       <label>Plant
         <select id="plantSize">
           ${plants
@@ -35,12 +36,13 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
       </label>
       <div id="plantBlurb" class="plant-blurb"></div>
       <button id="startBtn" type="button">Enter plant</button>
+      <button id="tutorialBtn" type="button" class="btn-secondary">Tutorial — acronyms</button>
       <div class="help">
         <strong>Controls</strong>
         <ul>
           <li>WASD / arrows — move · mouse drag — look · wheel — zoom</li>
-          <li>C — toggle orbit / walk · click unit — select</li>
-          <li>Esc — return to menu</li>
+          <li>C — toggle orbit / walk · hover unit — tooltip · click — select</li>
+          <li>SCADA Autopilot — keep NORMAL / meet ECA · Esc — menu</li>
         </ul>
       </div>
     </div>
@@ -49,6 +51,7 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
   const sel = root.querySelector('#plantSize') as HTMLSelectElement;
   const blurb = root.querySelector('#plantBlurb') as HTMLElement;
   const btn = root.querySelector('#startBtn') as HTMLButtonElement;
+  const tutBtn = root.querySelector('#tutorialBtn') as HTMLButtonElement;
 
   function refreshBlurb(): void {
     const p = plants.find((x) => x.id === sel.value)!;
@@ -70,6 +73,11 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
   btn.addEventListener('click', () => {
     const plant = plants.find((x) => x.id === sel.value)!;
     void onStart({ plant });
+  });
+
+  tutBtn.addEventListener('click', () => {
+    audio.uiClick();
+    openTutorial();
   });
 
   return {

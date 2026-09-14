@@ -1,7 +1,7 @@
 {
   "name": "wwtp-na",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "North American WWTP operator-training sim (Waterloo Region tribute)",
   "scripts": {

@@ -4,6 +4,11 @@ import { ScadaOverlay, type SimSpeed } from './ui/scada';
 import { PlantScene } from './world/plantScene';
 import { ProcessModel } from './sim/processModel';
 import { audio } from './audio/AudioEngine';
+import { loadPlantTextures } from './world/textures';
+import { loadPlantGeo } from './world/osmBake';
+import { Autopilot } from './sim/autopilot';
+import { HoverTip } from './ui/hoverTip';
+import { maybeShowFirstRunTutorial } from './ui/tutorial';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const menuHost = document.getElementById('menu')!;
@@ -13,12 +18,15 @@ const hintEl = document.getElementById('camHint')!;
 let scene: PlantScene | null = null;
 let model: ProcessModel | null = null;
 let scada: ScadaOverlay | null = null;
+let hoverTip: HoverTip | null = null;
+let autopilot: Autopilot | null = null;
 let raf = 0;
 let last = performance.now();
 let simAccum = 0;
 let onSite = false;
 /** Default slower for readable training; operator can raise to 4× / 12×. */
 let simSpeed: SimSpeed = 4;
+let texturesReady = loadPlantTextures();
 
 const menu = mountMenu(menuHost, async ({ plant }) => {
   await audio.unlock();
@@ -33,12 +41,23 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
 
   model = new ProcessModel(plant);
   model.resetShift();
+  autopilot = new Autopilot();
+
   scada = new ScadaOverlay(hudHost, model, {
     simSpeed,
     onSimSpeedChange: (s) => {
       simSpeed = s;
     },
+    autopilot,
+    onAutopilotChange: (on) => {
+      const badge = document.getElementById('apHudBadge');
+      if (badge) {
+        badge.classList.toggle('hidden', !on);
+      }
+    },
   });
+
+  hoverTip = new HoverTip(hudHost, (ids) => scada?.focusControls(ids));
 
   const modeBadge = document.getElementById('modeBadge');
   const setModeBadge = (mode: 'orbit' | 'walk') => {
@@ -46,16 +65,56 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     modeBadge.textContent = mode === 'walk' ? 'WALK' : 'ORBIT';
     modeBadge.dataset.mode = mode;
   };
-  scene = new PlantScene(canvas, plant, (unit) => {
-    scada?.setSelectedUnit(unit?.label ?? null);
-    if (unit) audio.uiClick();
-  }, setModeBadge);
+
+  const [textures, geo] = await Promise.all([texturesReady, loadPlantGeo(plant.id)]);
+
+  scene = new PlantScene(
+    canvas,
+    plant,
+    (unit) => {
+      scada?.setSelectedUnit(unit?.label ?? null);
+      if (unit) audio.uiClick();
+    },
+    setModeBadge,
+    {
+      textures,
+      geo,
+      onHover: (unit, x, y) => {
+        if (!hoverTip) return;
+        if (!unit) hoverTip.hide();
+        else hoverTip.show(unit.id, unit.label, x, y);
+      },
+    },
+  );
   setModeBadge('orbit');
+
+  // Attribution footer
+  let attr = document.getElementById('geoAttr');
+  if (!attr) {
+    attr = document.createElement('div');
+    attr.id = 'geoAttr';
+    attr.className = 'geo-attr';
+    document.getElementById('app')!.appendChild(attr);
+  }
+  attr.textContent = scene.attribution || '© OpenStreetMap contributors';
+  attr.classList.remove('hidden');
+
+  // Autopilot HUD badge
+  let apHud = document.getElementById('apHudBadge');
+  if (!apHud) {
+    apHud = document.createElement('div');
+    apHud.id = 'apHudBadge';
+    apHud.className = 'ap-hud-badge hidden';
+    apHud.textContent = 'AUTOPILOT';
+    document.getElementById('app')!.appendChild(apHud);
+  }
+  apHud.classList.add('hidden');
 
   audio.startAmbience();
 
   last = performance.now();
   simAccum = 0;
+  let lastState: import('./sim/processModel').SimState | null = null;
   const tick = (now: number) => {
     raf = requestAnimationFrame(tick);
     const dtWall = Math.min(0.05, (now - last) / 1000);
@@ -63,8 +122,12 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     const simDt = dtWall * simSpeed;
     simAccum += simDt;
     if (model && scada && simAccum > 0) {
-      const state = model.step(simAccum);
+      const stepped = simAccum;
       simAccum = 0;
+      // Autopilot adjusts setpoints from prior state, then step applies them
+      if (lastState) autopilot?.tick(model, lastState, stepped);
+      const state = model.step(stepped);
+      lastState = state;
       scada.update(state);
       if (onSite) {
         audio.setPlantLevels({
@@ -88,8 +151,13 @@ function teardownRun(): void {
   scene = null;
   scada?.destroy();
   scada = null;
+  hoverTip?.destroy();
+  hoverTip = null;
+  autopilot = null;
   model = null;
   hudHost.querySelectorAll('.scada-window').forEach((n) => n.remove());
+  document.getElementById('geoAttr')?.classList.add('hidden');
+  document.getElementById('apHudBadge')?.classList.add('hidden');
 }
 
 function showMenu(): void {
@@ -116,3 +184,6 @@ menu.show();
 hudHost.classList.add('hidden');
 hintEl.classList.add('hidden');
 document.getElementById('modeBadge')?.classList.add('hidden');
+
+// First-run acronym tutorial (skippable)
+maybeShowFirstRunTutorial();

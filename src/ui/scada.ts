@@ -1,6 +1,7 @@
 import type { ProcessModel, SimState, Setpoints } from '../sim/processModel';
 import { formatFlow } from '../data/plantTypes';
 import { audio } from '../audio/AudioEngine';
+import type { Autopilot } from '../sim/autopilot';
 
 export type SimSpeed = 1 | 4 | 12;
 
@@ -11,16 +12,25 @@ export class ScadaOverlay {
   private septic: boolean;
   private simSpeed: SimSpeed;
   private onSimSpeedChange: (s: SimSpeed) => void;
+  private autopilot: Autopilot | null;
+  private onAutopilotChange: ((on: boolean) => void) | null;
 
   constructor(
     host: HTMLElement,
     model: ProcessModel,
-    opts?: { simSpeed?: SimSpeed; onSimSpeedChange?: (s: SimSpeed) => void },
+    opts?: {
+      simSpeed?: SimSpeed;
+      onSimSpeedChange?: (s: SimSpeed) => void;
+      autopilot?: Autopilot;
+      onAutopilotChange?: (on: boolean) => void;
+    },
   ) {
     this.model = model;
     this.septic = model.plant.isSeptic;
     this.simSpeed = opts?.simSpeed ?? 4;
     this.onSimSpeedChange = opts?.onSimSpeedChange ?? (() => {});
+    this.autopilot = opts?.autopilot ?? null;
+    this.onAutopilotChange = opts?.onAutopilotChange ?? null;
     this.el = document.createElement('div');
     this.el.id = 'scada';
     this.el.className = 'scada-window';
@@ -43,6 +53,38 @@ export class ScadaOverlay {
     return this.simSpeed;
   }
 
+  /** Scroll / highlight related setpoint controls (from hover "Open controls"). */
+  focusControls(ids: string[]): void {
+    this.el.querySelectorAll('.scada-hl').forEach((n) => n.classList.remove('scada-hl'));
+    const controlsCol = this.el.querySelector('.scada-col.controls') as HTMLElement | null;
+    controlsCol?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    for (const id of ids) {
+      const input = this.el.querySelector(`#${id}`) as HTMLElement | null;
+      if (!input) continue;
+      const label = input.closest('label') || input;
+      label.classList.add('scada-hl');
+      input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    // Clear highlight after a few seconds
+    window.setTimeout(() => {
+      this.el.querySelectorAll('.scada-hl').forEach((n) => n.classList.remove('scada-hl'));
+    }, 3500);
+  }
+
+  syncControlInputs(): void {
+    const sp = this.model.setpoints;
+    const setVal = (id: string, v: number) => {
+      const el = this.el.querySelector(`#${id}`) as HTMLInputElement | null;
+      if (el && !el.matches(':active')) el.value = String(v);
+    };
+    setVal('spDo', sp.doTarget);
+    setVal('spBlower', sp.blowerPct);
+    setVal('spChem', sp.chemicalDosePct);
+    setVal('spPump', sp.pumpSpeedPct);
+    const dis = this.el.querySelector('#spDisinfect') as HTMLInputElement | null;
+    if (dis) dis.checked = sp.disinfectionOnline;
+  }
+
   update(state: SimState): void {
     const set = (id: string, v: string) => {
       const n = this.el.querySelector(`#${id}`);
@@ -56,8 +98,15 @@ export class ScadaOverlay {
     set('tagKw', state.blowerKw.toFixed(p.isSeptic ? 2 : 0));
     set('tagUtil', state.capacityUtilPct.toFixed(0));
     set('tagClock', formatSimClock(state.timeSec));
-    set('statusStrip', `${state.statusLine} · ${this.simSpeed}×`);
+    const ap = this.autopilot?.enabled ? ' · AUTOPILOT' : '';
+    set('statusStrip', `${state.statusLine} · ${this.simSpeed}×${ap}`);
     set('scadaUnit', this.selectedUnitLabel);
+
+    const badge = this.el.querySelector('#autopilotBadge') as HTMLElement | null;
+    if (badge) {
+      badge.classList.toggle('on', !!this.autopilot?.enabled);
+      badge.textContent = this.autopilot?.enabled ? 'AUTOPILOT' : 'MANUAL';
+    }
 
     if (this.septic) {
       set('tagTank', state.tankLevelPct.toFixed(0));
@@ -116,6 +165,8 @@ export class ScadaOverlay {
     this.syncReadout('blowerPct', `${this.model.setpoints.blowerPct.toFixed(0)}%`);
     this.syncReadout('chemPct', `${this.model.setpoints.chemicalDosePct.toFixed(0)}%`);
     this.syncReadout('pumpPct', `${this.model.setpoints.pumpSpeedPct.toFixed(0)}%`);
+
+    if (this.autopilot?.enabled) this.syncControlInputs();
   }
 
   private syncReadout(key: string, text: string): void {
@@ -209,14 +260,21 @@ export class ScadaOverlay {
       )
       .join('');
 
+    const apOn = this.autopilot?.enabled ? 'checked' : '';
+
     this.el.innerHTML = `
       <div class="scada-titlebar">
         <span class="scada-title">${title}</span>
+        <span class="autopilot-badge" id="autopilotBadge">MANUAL</span>
         <span class="scada-clock" id="tagClock">08:00</span>
       </div>
       <div class="scada-body">
         <div class="scada-col tags"><div class="tag-grid">${tags}</div></div>
         <div class="scada-col controls">
+          <label class="check autopilot-toggle">
+            <input type="checkbox" id="spAutopilot" ${apOn} /> Autopilot
+          </label>
+          <p class="scada-hint">ON: tracks DO, wet-well, chem/ECA, disinfection, septic float. OFF: full manual.</p>
           ${controls}
           <div class="ctrl-head" style="margin-top:.65rem">Sim speed</div>
           <div class="speed-row" id="simSpeedRow">${speedBtns}</div>
@@ -235,6 +293,9 @@ export class ScadaOverlay {
       const el = this.el.querySelector(`#${id}`) as HTMLInputElement | null;
       if (!el) return;
       el.addEventListener('input', () => {
+        if (this.autopilot?.enabled) {
+          // Manual tweak while AP on still applies; AP will re-trim next tick
+        }
         this.model.updateSetpoint(key, parse(el.value) as never);
         audio.scadaTick();
       });
@@ -247,6 +308,18 @@ export class ScadaOverlay {
     dis?.addEventListener('change', () => {
       this.model.updateSetpoint('disinfectionOnline', dis.checked);
       audio.uiClick();
+    });
+
+    const ap = this.el.querySelector('#spAutopilot') as HTMLInputElement | null;
+    ap?.addEventListener('change', () => {
+      if (this.autopilot) this.autopilot.enabled = ap.checked;
+      this.onAutopilotChange?.(ap.checked);
+      audio.uiClick();
+      const badge = this.el.querySelector('#autopilotBadge') as HTMLElement | null;
+      if (badge) {
+        badge.classList.toggle('on', ap.checked);
+        badge.textContent = ap.checked ? 'AUTOPILOT' : 'MANUAL';
+      }
     });
 
     this.el.querySelectorAll('.speed-btn').forEach((btn) => {

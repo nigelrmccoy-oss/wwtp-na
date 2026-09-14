@@ -91,7 +91,9 @@ export class ProcessModel {
     this.influentBod = plant.influentBod;
     this.effluentBod = plant.effluentBod;
     this.influentTp = plant.influentTpMgL;
-    this.effluentTp = plant.effluentTpMgL;
+    // Healthy default: meet ECA when typical effluent is higher (e.g. Kitchener post-tertiary obj).
+    this.effluentTp =
+      plant.ecaTpMgL != null ? Math.min(plant.effluentTpMgL, plant.ecaTpMgL) : plant.effluentTpMgL;
     this.tankLevel = plant.research.scadaDefaults.tankLevelPct ?? 45;
 
     // Init blower so OTR ≈ OUR at avg-day util + default MLSS (healthy start).
@@ -255,16 +257,30 @@ export class ProcessModel {
       80,
     );
 
-    // TP proxy — chemical dose drives toward plant effluent / ECA
+    // TP proxy — dose curve anchored to plant effluent.tpMgL + ECA.
+    // Default ~40% dose → healthy (meets ECA); 0% → untreated WARN; 100% → below ECA floor.
     this.influentTp = clamp(p.influentTpMgL * (0.9 + 0.12 * diu), p.influentTpMgL * 0.7, p.influentTpMgL * 1.4);
-    const chemFrac = clamp(sp.chemicalDosePct / 100, 0, 1);
-    const tpTarget = p.effluentTpMgL;
-    const tpFloor = p.ecaTpMgL != null ? Math.min(tpTarget, p.ecaTpMgL * 0.85) : tpTarget * 0.7;
-    const tpPoor = this.influentTp * (0.55 - 0.25 * chemFrac); // low dose → higher effluent TP
+    const dose = sp.chemicalDosePct;
+    const nominalDose = 40;
+    const eca = p.ecaTpMgL;
+    const typical = p.effluentTpMgL;
+    const healthy = eca != null ? Math.min(typical, eca) : typical;
+    const floor = eca != null ? Math.min(healthy * 0.5, eca * 0.45) : healthy * 0.5;
+    const untreated = this.influentTp * 0.48; // bio-only ~52% TP removal
+    let tpGoal: number;
+    if (dose <= nominalDose) {
+      const t = Math.pow(dose / nominalDose, 0.85);
+      tpGoal = untreated + (healthy - untreated) * t;
+    } else {
+      const t = Math.pow((dose - nominalDose) / (100 - nominalDose), 0.9);
+      tpGoal = healthy + (floor - healthy) * t;
+    }
+    // Weak DO hurts polishing slightly (mismanagement still visible)
+    tpGoal *= 1 + 0.1 * clamp(1.4 - this.doMgL, 0, 1.4);
     this.effluentTp = clamp(
-      tpPoor * (1 - chemFrac) + tpTarget * chemFrac * 0.55 + tpFloor * chemFrac * 0.45,
-      Math.max(0.02, tpFloor * 0.5),
-      Math.max(1.5, this.influentTp * 0.6),
+      tpGoal * (1 + 0.025 * noise),
+      Math.max(0.02, floor * 0.8),
+      Math.max(untreated * 1.05, this.influentTp * 0.55),
     );
 
     const blowerKw = (sp.blowerPct / 100) * p.blowerRatedKw * (0.85 + 0.15 * (this.aerationLevel / 100));

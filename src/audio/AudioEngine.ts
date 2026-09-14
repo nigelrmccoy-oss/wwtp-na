@@ -117,10 +117,10 @@ export class AudioEngine {
       this.alarmActive = true;
       this.ensureLoop('alarm');
       // Louder than ambience so operators hear the buzzer in playtest / training
-      this.fade('alarm', 0.55, 0.03);
+      this.fade('alarm', 0.78, 0.03);
     } else if (opts.hasAlarm && this.alarmActive) {
       // Keep gain up if unlock completed after first fire
-      this.fade('alarm', 0.55, 0.08);
+      this.fade('alarm', 0.78, 0.08);
     } else if (!opts.hasAlarm && this.alarmActive) {
       this.alarmActive = false;
       this.fade('alarm', 0, 0.25);
@@ -266,26 +266,26 @@ export class AudioEngine {
       voice.source = null;
       voice.extras = [noise, bp, lfo, lfoG, g];
     } else if (id === 'alarm') {
-      // Dual-tone industrial buzzer (audible over plant ambience)
+      // Dual-tone industrial buzzer — louder/clearer over plant ambience
       const osc = ctx.createOscillator();
       osc.type = 'square';
-      osc.frequency.value = 880;
+      osc.frequency.value = 920;
       const osc2 = ctx.createOscillator();
       osc2.type = 'square';
-      osc2.frequency.value = 660;
+      osc2.frequency.value = 690;
       const lfo = ctx.createOscillator();
       lfo.type = 'square';
-      lfo.frequency.value = 3.5;
+      lfo.frequency.value = 4.2;
       const lfoG = ctx.createGain();
-      lfoG.gain.value = 320;
+      lfoG.gain.value = 360;
       lfo.connect(lfoG); lfoG.connect(osc.frequency);
       const g = ctx.createGain();
-      g.gain.value = 0.85;
+      g.gain.value = 1.0;
       const g2 = ctx.createGain();
-      g2.gain.value = 0.45;
+      g2.gain.value = 0.65;
       const hp = ctx.createBiquadFilter();
       hp.type = 'highpass';
-      hp.frequency.value = 350;
+      hp.frequency.value = 280;
       osc.connect(hp); hp.connect(g); g.connect(voice.gain);
       osc2.connect(g2); g2.connect(voice.gain);
       osc.start(); osc2.start(); lfo.start();

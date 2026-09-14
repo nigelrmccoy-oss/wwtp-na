@@ -103,8 +103,12 @@ export class ScadaOverlay {
         const shown = state.alarms.slice(0, MAX_VISIBLE);
         const more = state.alarms.length - shown.length;
         alarmBox.innerHTML =
-          shown.map((a) => `<div class="alarm-row ${a.severity}">${a.message}</div>`).join('') +
-          (more > 0 ? `<div class="alarm-more">+${more} more</div>` : '');
+          shown
+            .map(
+              (a) =>
+                `<div class="alarm-row ${a.severity}" title="${a.message.replace(/"/g, '&quot;')}">${a.message}</div>`,
+            )
+            .join('') + (more > 0 ? `<div class="alarm-more">+${more} more</div>` : '');
       }
     }
 
@@ -217,10 +221,10 @@ export class ScadaOverlay {
           <div class="ctrl-head" style="margin-top:.65rem">Sim speed</div>
           <div class="speed-row" id="simSpeedRow">${speedBtns}</div>
         </div>
-        <div class="scada-col alarms">
-          <div class="ctrl-head">Alarms</div>
-          <div id="alarmList" class="alarm-list"></div>
-        </div>
+      </div>
+      <div class="scada-alarms">
+        <div class="ctrl-head">Alarms</div>
+        <div id="alarmList" class="alarm-list"></div>
       </div>
       <div class="status-strip" id="statusStrip">Shift 0:00 · NORMAL</div>
     `;

@@ -34,6 +34,8 @@ button:hover{filter:brightness(1.08)}
   font-size:12px;
   color:#d6e0ea;
   overflow:hidden;
+  display:flex;flex-direction:column;
+  max-height:min(78vh,640px);
 }
 .scada-titlebar{
   display:flex;justify-content:space-between;align-items:center;
@@ -47,10 +49,10 @@ button:hover{filter:brightness(1.08)}
   color:#9fd6ff;
 }
 .scada-clock{color:#c8e6c9;font-variant-numeric:tabular-nums}
-.scada-body{display:grid;grid-template-columns:1.2fr .9fr;gap:0;max-height:min(70vh,560px);overflow:auto}
-.scada-col.alarms{grid-column:1/-1;border-top:1px solid #2a3540;padding:.45rem .55rem .55rem;background:#0e141c}
+.scada-body{display:grid;grid-template-columns:1.2fr .9fr;gap:0;max-height:min(52vh,420px);overflow:auto}
 .scada-col.tags{padding:.5rem .55rem;border-right:1px solid #2a3540}
 .scada-col.controls{padding:.5rem .55rem}
+.scada-alarms{border-top:1px solid #2a3540;padding:.4rem .55rem .45rem;background:#0e141c;flex-shrink:0}
 .tag-grid{display:grid;grid-template-columns:1fr;gap:3px}
 .tag{display:flex;justify-content:space-between;gap:.5rem;padding:.22rem .35rem;background:#0c1218;border:1px solid #243040;border-radius:2px}
 .tag .k{color:#7a93a8;font-size:10px;text-transform:uppercase;letter-spacing:.03em}
@@ -65,9 +67,12 @@ button:hover{filter:brightness(1.08)}
 .scada-col.controls .check{display:flex;align-items:center;gap:.45rem;margin-top:.55rem}
 .scada-col.controls .check input{width:auto;accent-color:#2a8a6a}
 
-.alarm-list{min-height:2.2rem}
-.alarm-ok{color:#6dffa0;opacity:.85;padding:.25rem 0}
-.alarm-row{padding:.28rem .4rem;margin:.18rem 0;border-radius:2px;font-weight:700;font-size:11px}
+.alarm-ok{color:#6dffa0;opacity:.85;padding:.25rem 0;height:1.35rem;line-height:1.35rem;overflow:hidden}
+.alarm-row{
+  height:1.35rem;line-height:calc(1.35rem - 2px);padding:0 .4rem;margin:0;border-radius:2px;
+  font-weight:700;font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;box-sizing:border-box;
+  flex:0 0 1.35rem;
+}
 .alarm-row.warn{background:#3a3010;color:#ffd666;border:1px solid #6a5820}
 .alarm-row.alarm{background:#3a1212;color:#ff8a8a;border:1px solid #6a2020;animation:blink 1s infinite}
 
@@ -99,9 +104,17 @@ button:hover{filter:brightness(1.08)}
 .speed-btn:hover{filter:brightness(1.12);background:#1a2834}
 .speed-btn.active{background:#1a5a45;border-color:#2a8a6a;color:#c8ffe0}
 
-.alarm-row{padding:.18rem .35rem;margin:.1rem 0;line-height:1.25}
-.alarm-more{padding:.15rem .35rem;margin-top:.15rem;font-size:10px;font-weight:700;color:#9bb0c0;opacity:.9}
-.alarm-list{max-height:5.6rem;overflow:hidden}
+.alarm-more{
+  height:1.1rem;line-height:1.1rem;padding:0 .35rem;margin:0;font-size:10px;font-weight:700;
+  color:#9bb0c0;opacity:.9;overflow:hidden;white-space:nowrap;
+}
+/* Exactly 3 fixed-height rows (+ optional +N more); never scroll/clip inside the list */
+.alarm-list{
+  height:calc(3 * 1.35rem + 2 * 2px + 1.1rem);
+  max-height:calc(3 * 1.35rem + 2 * 2px + 1.1rem);
+  overflow:hidden;
+  display:flex;flex-direction:column;gap:2px;
+}
 
 .mode-badge{
   position:absolute;z-index:4;left:12px;top:12px;

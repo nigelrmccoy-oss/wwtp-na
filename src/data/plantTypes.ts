@@ -85,10 +85,16 @@ export interface PlantRuntime {
   hasPrimary: boolean;
   hasOxidationDitch: boolean;
   isSeptic: boolean;
+  /** Coagulant name for P-removal dose slider, or null if none. */
+  chemicalLabel: string | null;
+  /** ECA / objective TP (mg/L) when present in research data. */
+  ecaTpMgL: number | null;
   defaultDo: number;
   defaultMlss: number;
   influentBod: number;
   effluentBod: number;
+  influentTpMgL: number;
+  effluentTpMgL: number;
 }
 
 const SIZE_LABEL: Record<string, string> = {
@@ -146,6 +152,30 @@ export function resolveDisinfectionType(process: string[]): DisinfectionType {
   if (hasChlorine) return 'chlorine';
   if (hasUv) return 'uv';
   return 'none';
+}
+
+
+/** Research-pack coagulant label for chemical_p_removal plants. */
+export function resolveChemicalLabel(p: ResearchPlant): string | null {
+  if (p.scadaProfile === 'septic' || !p.process.includes('chemical_p_removal')) return null;
+  const id = p.id.toLowerCase();
+  const name = p.name.toLowerCase();
+  // Sourced from docs/research-plants.md (Region TM2 / Toronto annual report).
+  if (id === 'st-jacobs' || id === 'galt') return 'Alum';
+  if (id === 'waterloo' || id === 'kitchener') return 'Ferric';
+  if (id.includes('ashbridges') || /ashbridges/.test(name)) return 'Ferric';
+  if (id.includes('woodward') || /woodward/.test(name)) return 'Ferric';
+  return 'Coagulant';
+}
+
+export function resolveEcaTp(p: ResearchPlant): number | null {
+  const eca = p.waterQuality?.ecaObjectivesMgL ?? {};
+  const keys = ['tp', 'tpMonthly', 'secondaryObjectiveTpMonthly', 'TP'];
+  for (const k of keys) {
+    const v = eca[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
 }
 
 export function toRuntime(p: ResearchPlant): PlantRuntime {
@@ -260,10 +290,14 @@ export function toRuntime(p: ResearchPlant): PlantRuntime {
     hasPrimary,
     hasOxidationDitch,
     isSeptic,
+    chemicalLabel: isSeptic ? null : resolveChemicalLabel(p),
+    ecaTpMgL: isSeptic ? null : resolveEcaTp(p),
     defaultDo: p.scadaDefaults.aerationDoMgL,
     defaultMlss: p.scadaDefaults.mlssMgL,
     influentBod: p.waterQuality.influent.bodMgL,
     effluentBod: p.waterQuality.effluent.bodMgL,
+    influentTpMgL: p.waterQuality.influent.tpMgL,
+    effluentTpMgL: p.waterQuality.effluent.tpMgL,
   };
 }
 

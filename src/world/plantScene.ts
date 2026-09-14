@@ -23,9 +23,9 @@ export class PlantScene {
   private root: THREE.Group;
   private keys = new Set<string>();
   private yaw = 0.6;
-  private pitch = -0.35;
+  private pitch = -0.42;
   private orbitTarget = new THREE.Vector3(0, 0, 0);
-  private orbitDist = 85;
+  private orbitDist = 55;
   private mode: 'orbit' | 'walk' = 'orbit';
   private walkPos = new THREE.Vector3(40, 2.2, 55);
   private raycaster = new THREE.Raycaster();
@@ -39,10 +39,20 @@ export class PlantScene {
   private animId = 0;
   private onKeyDown: ((e: KeyboardEvent) => void) | null = null;
   private onKeyUp: ((e: KeyboardEvent) => void) | null = null;
+  private onModeChange: ((mode: 'orbit' | 'walk') => void) | null = null;
+  private pointerDownX = 0;
+  private pointerDownY = 0;
+  private pointerMoved = false;
 
-  constructor(canvas: HTMLCanvasElement, plant: PlantConfig, onSelect: UnitSelectCb) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    plant: PlantConfig,
+    onSelect: UnitSelectCb,
+    onModeChange?: (mode: 'orbit' | 'walk') => void,
+  ) {
     this.plant = plant;
     this.onSelect = onSelect;
+    this.onModeChange = onModeChange ?? null;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -51,7 +61,7 @@ export class PlantScene {
     this.renderer.shadowMap.enabled = true;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0065);
+    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0022);
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 800);
     this.root = new THREE.Group();
@@ -70,6 +80,7 @@ export class PlantScene {
     this.bindInput(canvas);
     this.onResize();
     window.addEventListener('resize', this.onResize);
+    this.onModeChange?.(this.mode);
 
     const loop = () => {
       if (this.disposed) return;
@@ -94,6 +105,10 @@ export class PlantScene {
   highlightUnit(id: string | null): void {
     const u = id ? this.units.find((x) => x.id === id) ?? null : null;
     this.setSelected(u);
+  }
+
+  getMode(): 'orbit' | 'walk' {
+    return this.mode;
   }
 
   private onResize = (): void => {
@@ -169,8 +184,10 @@ export class PlantScene {
     group.add(mesh);
 
     // Site pad (gravel / asphalt yard)
+    const padW = (this.plant.size === 'xlarge' || this.plant.size === 'extra-large' ? 140 : this.plant.size === 'large' ? 125 : 110) * this.plant.layoutScale;
+    const padD = (this.plant.size === 'xlarge' || this.plant.size === 'extra-large' ? 100 : this.plant.size === 'large' ? 90 : 80) * this.plant.layoutScale;
     const pad = new THREE.Mesh(
-      new THREE.PlaneGeometry(110 * this.plant.layoutScale, 80 * this.plant.layoutScale),
+      new THREE.PlaneGeometry(padW, padD),
       new THREE.MeshStandardMaterial({ color: 0x5a5e58, roughness: 0.9 }),
     );
     pad.rotation.x = -Math.PI / 2;
@@ -183,21 +200,32 @@ export class PlantScene {
 
   private buildPlantLayout(): void {
     const s = this.plant.layoutScale;
+    const size = this.plant.size;
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3c3e, roughness: 0.85 });
     const walkMat = new THREE.MeshStandardMaterial({ color: 0x6e716c, roughness: 0.9 });
 
-    // Main road spine
-    const road = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, 95 * s), roadMat);
+    // Main road spine — longer for large/xlarge footprints
+    const spineLen = (size === 'xlarge' || size === 'extra-large' ? 120 : size === 'large' ? 105 : 95) * s;
+    const road = new THREE.Mesh(new THREE.BoxGeometry(8, 0.12, spineLen), roadMat);
     road.position.set(0, 0.12, 0);
     road.receiveShadow = true;
     this.root.add(road);
 
-    // Cross walkways
-    for (const z of [-28, 0, 28].map((v) => v * s)) {
+    // Cross walkways — denser on larger sites
+    const walkZs =
+      size === 'xlarge' || size === 'extra-large'
+        ? [-40, -18, 5, 28, 48]
+        : size === 'large'
+          ? [-32, -8, 16, 36]
+          : [-28, 0, 28];
+    for (const z of walkZs.map((v) => v * s)) {
       const walk = new THREE.Mesh(new THREE.BoxGeometry(70 * s, 0.08, 2.2), walkMat);
       walk.position.set(8 * s, 0.1, z);
       this.root.add(walk);
     }
+
+    // Dual-train offset for large+ municipal plants (silhouette hint vs single Lego row)
+    const trainOffsetZ = size === 'xlarge' || size === 'extra-large' ? 14 : size === 'large' ? 10 : 0;
 
     // Process train — septic micro site vs municipal WWTP
     const units: { id: string; label: string; kind: string; x: number; z: number; count: number }[] =
@@ -213,7 +241,7 @@ export class PlantScene {
             {
               id: 'primary',
               label: this.plant.hasOxidationDitch ? 'Oxidation Ditch' : 'Primary Clarifiers',
-              kind: this.plant.hasOxidationDitch ? 'basin' : 'cyl',
+              kind: this.plant.hasOxidationDitch ? 'ditch' : 'cyl',
               x: -18,
               z: -12,
               count: this.plant.hasOxidationDitch
@@ -251,43 +279,96 @@ export class PlantScene {
             { id: 'solids', label: 'Solids Handling', kind: 'rect', x: -10, z: 22, count: 1 },
           ];
 
+    // Optional tertiary / digester silhouette markers from process[]
+    if (!this.plant.isSeptic && this.plant.research.process.includes('tertiary_filtration')) {
+      units.push({ id: 'tertiary', label: 'Tertiary Filters', kind: 'basin', x: 42, z: 18, count: size === 'small' ? 1 : 2 });
+    }
+    if (!this.plant.isSeptic && this.plant.research.process.includes('anaerobic_digestion')) {
+      units.push({
+        id: 'digesters',
+        label: 'Digesters',
+        kind: 'cyl',
+        x: -28,
+        z: 28,
+        count: size === 'xlarge' || size === 'extra-large' ? 4 : size === 'large' ? 3 : 2,
+      });
+    }
+
     for (const u of units) {
       if (u.count <= 0 && u.kind !== 'rect') continue;
       const group = new THREE.Group();
-      group.position.set(u.x * s, 0, u.z * s);
+      const zOff = !this.plant.isSeptic && trainOffsetZ && u.id !== 'solids' && u.id !== 'digesters' ? -trainOffsetZ * 0.15 : 0;
+      group.position.set(u.x * s, 0, (u.z + zOff) * s);
       group.userData.unitId = u.id;
 
       if (u.kind === 'cyl') {
         const n = Math.max(1, u.count);
-        const spacing = 9 * Math.min(1.1, 3 / n);
+        const spacing = 9 * Math.min(1.1, 3 / Math.min(n, 4));
+        const rows = n > 6 ? 2 : 1;
+        const perRow = Math.ceil(n / rows);
         for (let i = 0; i < n; i++) {
-          const r = 3.6 * Math.min(1.15, s);
+          const row = Math.floor(i / perRow);
+          const col = i % perRow;
+          const r = (u.id === 'digesters' ? 4.2 : 3.6) * Math.min(1.15, s);
+          const h = u.id === 'digesters' ? 5.5 : 2.4;
           const mesh = new THREE.Mesh(
-            new THREE.CylinderGeometry(r, r, 2.4, 24),
-            new THREE.MeshStandardMaterial({ color: 0xb8c0c8, roughness: 0.55, metalness: 0.15 }),
+            new THREE.CylinderGeometry(r, r * (u.id === 'digesters' ? 0.85 : 1), h, 24),
+            new THREE.MeshStandardMaterial({
+              color: u.id === 'digesters' ? 0x8a9098 : 0xb8c0c8,
+              roughness: 0.55,
+              metalness: 0.15,
+            }),
           );
-          mesh.position.set((i - (n - 1) / 2) * spacing, 1.2, 0);
+          mesh.position.set((col - (perRow - 1) / 2) * spacing, h / 2, row * spacing * 0.85);
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           mesh.userData.unitId = u.id;
           group.add(mesh);
-          // water surface
-          const water = new THREE.Mesh(
-            new THREE.CircleGeometry(r * 0.92, 24),
-            new THREE.MeshStandardMaterial({ color: 0x3a7ca5, roughness: 0.25, metalness: 0.3 }),
+          if (u.id !== 'digesters') {
+            const water = new THREE.Mesh(
+              new THREE.CircleGeometry(r * 0.92, 24),
+              new THREE.MeshStandardMaterial({ color: 0x3a7ca5, roughness: 0.25, metalness: 0.3 }),
+            );
+            water.rotation.x = -Math.PI / 2;
+            water.position.set(mesh.position.x, h - 0.25, mesh.position.z);
+            group.add(water);
+          }
+        }
+      } else if (u.kind === 'ditch') {
+        // Oval oxidation-ditch silhouette (not a rectangular aeration bank)
+        const ditch = new THREE.Mesh(
+          new THREE.TorusGeometry(9 * Math.min(1.1, s), 3.2, 12, 32),
+          new THREE.MeshStandardMaterial({ color: 0x7a8a90, roughness: 0.7 }),
+        );
+        ditch.rotation.x = Math.PI / 2;
+        ditch.position.y = 1.2;
+        ditch.castShadow = true;
+        ditch.userData.unitId = u.id;
+        group.add(ditch);
+        const water = new THREE.Mesh(
+          new THREE.TorusGeometry(9 * Math.min(1.1, s), 2.6, 10, 32),
+          new THREE.MeshStandardMaterial({ color: 0x2f6f8f, roughness: 0.3 }),
+        );
+        water.rotation.x = Math.PI / 2;
+        water.position.y = 1.55;
+        group.add(water);
+        for (const side of [-1, 1]) {
+          const rotor = new THREE.Mesh(
+            new THREE.BoxGeometry(5, 1.2, 1.4),
+            new THREE.MeshStandardMaterial({ color: 0x556070, metalness: 0.35, roughness: 0.45 }),
           );
-          water.rotation.x = -Math.PI / 2;
-          water.position.set(mesh.position.x, 2.15, 0);
-          group.add(water);
+          rotor.position.set(side * 9 * Math.min(1.1, s), 2.4, 0);
+          rotor.userData.unitId = u.id;
+          group.add(rotor);
         }
       } else if (u.kind === 'basin') {
         const n = Math.max(1, u.count);
-        const w = 6.5;
-        const d = 14;
+        const w = u.id === 'tertiary' ? 5 : 6.5;
+        const d = u.id === 'tertiary' ? 10 : 14;
         for (let i = 0; i < n; i++) {
           const basin = new THREE.Mesh(
             new THREE.BoxGeometry(w, 2.8, d),
-            new THREE.MeshStandardMaterial({ color: 0x8a9aa0, roughness: 0.7 }),
+            new THREE.MeshStandardMaterial({ color: u.id === 'tertiary' ? 0x6a7a88 : 0x8a9aa0, roughness: 0.7 }),
           );
           basin.position.set((i - (n - 1) / 2) * (w + 1.2), 1.4, 0);
           basin.castShadow = true;
@@ -319,7 +400,6 @@ export class PlantScene {
           group.add(lamp);
         }
       } else if (u.kind === 'chlorine') {
-        // Chlorine contact channels — no UV lamp meshes
         const n = Math.max(1, u.count);
         const channel = new THREE.Mesh(
           new THREE.BoxGeometry(10 + n * 1.2, 2.4, 8),
@@ -345,7 +425,6 @@ export class PlantScene {
         water.position.set(0, 2.15, 0);
         group.add(water);
       } else {
-        // rect / headworks / solids
         const building = new THREE.Mesh(
           new THREE.BoxGeometry(u.id === 'solids' ? 16 : 12, u.id === 'solids' ? 6 : 5, 10),
           new THREE.MeshStandardMaterial({
@@ -357,7 +436,6 @@ export class PlantScene {
         building.castShadow = true;
         building.userData.unitId = u.id;
         group.add(building);
-        // roof
         const roof = new THREE.Mesh(
           new THREE.BoxGeometry(u.id === 'solids' ? 16.4 : 12.4, 0.35, 10.4),
           new THREE.MeshStandardMaterial({ color: 0x3d4550, roughness: 0.8 }),
@@ -366,46 +444,75 @@ export class PlantScene {
         group.add(roof);
       }
 
+      // Large plants: mirror a second train row for aeration/secondary silhouette
+      if (
+        !this.plant.isSeptic &&
+        trainOffsetZ > 0 &&
+        (u.id === 'aeration' || u.id === 'secondary' || u.id === 'primary') &&
+        u.count > 0 &&
+        u.kind !== 'ditch'
+      ) {
+        const mirror = group.clone(true);
+        mirror.position.z += trainOffsetZ * s;
+        mirror.traverse((o) => {
+          if (o.userData) o.userData.unitId = u.id;
+        });
+        this.root.add(mirror);
+      }
+
       const label = this.makeLabel(u.label);
-      label.position.set(0, 7.5, 0);
+      label.position.set(0, u.kind === 'ditch' ? 9.5 : 8.2, 0);
       group.add(label);
 
       this.root.add(group);
       this.units.push({ id: u.id, label: u.label, mesh: group });
     }
 
-    // Effluent channel stub
-    const outfall = new THREE.Mesh(
-      new THREE.BoxGeometry(4, 0.6, 18 * s),
-      new THREE.MeshStandardMaterial({ color: 0x4a90b8, roughness: 0.4 }),
-    );
-    outfall.position.set(58 * s, 0.4, 8 * s);
-    this.root.add(outfall);
+    // Effluent channel stub — skip misleading outfall on septic (no surface outfall)
+    if (!this.plant.isSeptic) {
+      const outfall = new THREE.Mesh(
+        new THREE.BoxGeometry(4, 0.6, 18 * s),
+        new THREE.MeshStandardMaterial({ color: 0x4a90b8, roughness: 0.4 }),
+      );
+      outfall.position.set(58 * s, 0.4, 8 * s);
+      this.root.add(outfall);
+    }
 
-    // Scale orbit for plant size
-    this.orbitDist = 70 + 40 * s;
-    this.walkPos.set(35 * s, 2.2, 50 * s);
+    // Closer default orbit so labels/units are readable on enter
+    this.orbitDist = 42 + 28 * s;
+    this.orbitTarget.set(8 * s, 0, -4 * s);
+    this.walkPos.set(28 * s, 2.2, 38 * s);
   }
 
   private makeLabel(text: string): THREE.Sprite {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 128;
+    canvas.width = 1024;
+    canvas.height = 256;
     const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, 512, 128);
-    ctx.fillStyle = 'rgba(10,16,28,0.72)';
-    ctx.roundRect(8, 24, 496, 80, 12);
+    ctx.clearRect(0, 0, 1024, 256);
+    ctx.fillStyle = 'rgba(8,14,24,0.88)';
+    ctx.roundRect(16, 40, 992, 176, 24);
     ctx.fill();
-    ctx.font = 'bold 42px system-ui, sans-serif';
-    ctx.fillStyle = '#e8eef8';
+    ctx.strokeStyle = 'rgba(180,210,240,0.35)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.font = 'bold 84px system-ui, sans-serif';
+    ctx.fillStyle = '#f2f7ff';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 256, 64);
+    ctx.fillText(text, 512, 128);
     const tex = new THREE.CanvasTexture(canvas);
     tex.needsUpdate = true;
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true });
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
     const spr = new THREE.Sprite(mat);
-    spr.scale.set(14, 3.5, 1);
+    spr.scale.set(22, 5.5, 1);
+    spr.renderOrder = 10;
     return spr;
   }
 
@@ -414,6 +521,7 @@ export class PlantScene {
       this.keys.add(e.code);
       if (e.code === 'KeyC') {
         this.mode = this.mode === 'orbit' ? 'walk' : 'orbit';
+        this.onModeChange?.(this.mode);
       }
     };
     this.onKeyUp = (e: KeyboardEvent) => {
@@ -425,10 +533,14 @@ export class PlantScene {
     let dragging = false;
     let lastX = 0;
     let lastY = 0;
+    const CLICK_PX = 6;
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button === 0) {
         dragging = true;
+        this.pointerMoved = false;
+        this.pointerDownX = e.clientX;
+        this.pointerDownY = e.clientY;
         lastX = e.clientX;
         lastY = e.clientY;
         canvas.setPointerCapture(e.pointerId);
@@ -443,16 +555,24 @@ export class PlantScene {
       const dy = e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
+      if (
+        Math.abs(e.clientX - this.pointerDownX) > CLICK_PX ||
+        Math.abs(e.clientY - this.pointerDownY) > CLICK_PX
+      ) {
+        this.pointerMoved = true;
+      }
       this.yaw -= dx * 0.005;
       this.pitch -= dy * 0.004;
       this.pitch = Math.max(-1.2, Math.min(0.2, this.pitch));
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 25, 220);
+      this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 220);
     }, { passive: false });
 
     canvas.addEventListener('click', (e) => {
+      // Ignore click-select after a drag look
+      if (this.pointerMoved) return;
       const rect = canvas.getBoundingClientRect();
       this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -532,7 +652,7 @@ export class PlantScene {
       const spr = u.mesh.children.find((c) => c instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (spr) {
         const sel = this.selected?.id === u.id;
-        spr.scale.set(sel ? 16 : 14, sel ? 4 : 3.5, 1);
+        spr.scale.set(sel ? 26 : 22, sel ? 6.5 : 5.5, 1);
       }
     }
   }

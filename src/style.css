@@ -98,3 +98,19 @@ button:hover{filter:brightness(1.08)}
 }
 .speed-btn:hover{filter:brightness(1.12);background:#1a2834}
 .speed-btn.active{background:#1a5a45;border-color:#2a8a6a;color:#c8ffe0}
+
+.alarm-row{padding:.18rem .35rem;margin:.1rem 0;line-height:1.25}
+.alarm-more{padding:.15rem .35rem;margin-top:.15rem;font-size:10px;font-weight:700;color:#9bb0c0;opacity:.9}
+.alarm-list{max-height:5.6rem;overflow:hidden}
+
+.mode-badge{
+  position:absolute;z-index:4;left:12px;top:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px;font-weight:800;letter-spacing:.08em;
+  padding:.35rem .65rem;border-radius:4px;
+  border:1px solid #3a5a48;background:rgba(12,28,22,.82);color:#8dffc0;
+  pointer-events:none;text-transform:uppercase;
+}
+.mode-badge[data-mode="walk"]{
+  border-color:#5a4a20;background:rgba(36,28,10,.85);color:#ffd666;
+}

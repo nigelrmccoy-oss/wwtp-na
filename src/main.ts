@@ -27,6 +27,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   menu.hide();
   hudHost.classList.remove('hidden');
   hintEl.classList.remove('hidden');
+  document.getElementById('modeBadge')?.classList.remove('hidden');
   onSite = true;
   simSpeed = 4;
 
@@ -39,10 +40,17 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     },
   });
 
+  const modeBadge = document.getElementById('modeBadge');
+  const setModeBadge = (mode: 'orbit' | 'walk') => {
+    if (!modeBadge) return;
+    modeBadge.textContent = mode === 'walk' ? 'WALK' : 'ORBIT';
+    modeBadge.dataset.mode = mode;
+  };
   scene = new PlantScene(canvas, plant, (unit) => {
     scada?.setSelectedUnit(unit?.label ?? null);
     if (unit) audio.uiClick();
-  });
+  }, setModeBadge);
+  setModeBadge('orbit');
 
   audio.startAmbience();
 
@@ -88,6 +96,7 @@ function showMenu(): void {
   teardownRun();
   hudHost.classList.add('hidden');
   hintEl.classList.add('hidden');
+  document.getElementById('modeBadge')?.classList.add('hidden');
   menu.show();
 }
 
@@ -106,3 +115,4 @@ window.addEventListener('keydown', unlockOnce);
 menu.show();
 hudHost.classList.add('hidden');
 hintEl.classList.add('hidden');
+document.getElementById('modeBadge')?.classList.add('hidden');

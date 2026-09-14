@@ -78,19 +78,34 @@ export class ScadaOverlay {
       set('tagSec', state.secondaryLevelPct.toFixed(0));
       set('tagBodIn', state.influentBodMgL.toFixed(0));
       set('tagBodOut', state.effluentBodMgL.toFixed(1));
+      set('tagTpOut', state.effluentTpMgL.toFixed(2));
+      const ecaTp = this.model.plant.ecaTpMgL;
+      set('tagTpEca', ecaTp != null ? ecaTp.toFixed(2) : '—');
       const disEl = this.el.querySelector('#tagDisinfect') as HTMLElement | null;
       if (disEl) {
         const na = state.disinfectionStatus === 'N/A';
         disEl.classList.toggle('tag-ok', state.disinfectionStatus === 'ONLINE');
         disEl.classList.toggle('tag-bad', !na && state.disinfectionStatus !== 'ONLINE');
       }
+      const tpEl = this.el.querySelector('#tagTpOut') as HTMLElement | null;
+      if (tpEl && ecaTp != null) {
+        tpEl.classList.toggle('tag-bad', state.effluentTpMgL > ecaTp * 1.15);
+        tpEl.classList.toggle('tag-ok', state.effluentTpMgL <= ecaTp);
+      }
     }
 
     const alarmBox = this.el.querySelector('#alarmList') as HTMLElement;
     if (alarmBox) {
-      alarmBox.innerHTML = state.alarms.length
-        ? state.alarms.map((a) => `<div class="alarm-row ${a.severity}">${a.message}</div>`).join('')
-        : `<div class="alarm-ok">No active alarms</div>`;
+      const MAX_VISIBLE = 3;
+      if (!state.alarms.length) {
+        alarmBox.innerHTML = `<div class="alarm-ok">No active alarms</div>`;
+      } else {
+        const shown = state.alarms.slice(0, MAX_VISIBLE);
+        const more = state.alarms.length - shown.length;
+        alarmBox.innerHTML =
+          shown.map((a) => `<div class="alarm-row ${a.severity}">${a.message}</div>`).join('') +
+          (more > 0 ? `<div class="alarm-more">+${more} more</div>` : '');
+      }
     }
 
     this.syncReadout('doTarget', this.model.setpoints.doTarget.toFixed(1));
@@ -117,6 +132,18 @@ export class ScadaOverlay {
     const dis = this.disinfectionLabel();
     const showDisinfect = !this.septic && this.model.plant.disinfectionType !== 'none';
 
+    const pPlant = this.model.plant;
+    const chemLabel = pPlant.chemicalLabel;
+    const showTp = !this.septic && (pPlant.ecaTpMgL != null || chemLabel != null);
+    const levelTags = this.septic
+      ? ''
+      : pPlant.hasOxidationDitch
+        ? `<div class="tag"><span class="k">Ditch lvl</span><span class="v"><span id="tagAer">0</span> <small>%</small></span></div>
+          <div class="tag"><span class="k">Secondary lvl</span><span class="v"><span id="tagSec">0</span> <small>%</small></span></div>`
+        : `${pPlant.hasPrimary ? `<div class="tag"><span class="k">Primary lvl</span><span class="v"><span id="tagPrim">0</span> <small>%</small></span></div>` : ''}
+          <div class="tag"><span class="k">Aeration lvl</span><span class="v"><span id="tagAer">0</span> <small>%</small></span></div>
+          <div class="tag"><span class="k">Secondary lvl</span><span class="v"><span id="tagSec">0</span> <small>%</small></span></div>`;
+
     const tags = this.septic
       ? `
           <div class="tag"><span class="k">Influent</span><span class="v"><span id="tagInfluent">0</span> <small id="tagFlowUnit">m³/d</small></span></div>
@@ -135,11 +162,10 @@ export class ScadaOverlay {
           <div class="tag"><span class="k">Blower/Power</span><span class="v"><span id="tagKw">0</span> <small>kW</small></span></div>
           ${showDisinfect ? `<div class="tag"><span class="k">${dis.tag}</span><span class="v"><span id="tagDisinfect">—</span></span></div>` : ''}
           <div class="tag"><span class="k">Wet-well lvl</span><span class="v"><span id="tagWetWell">0</span> <small>%</small></span></div>
-          <div class="tag"><span class="k">Primary lvl</span><span class="v"><span id="tagPrim">0</span> <small>%</small></span></div>
-          <div class="tag"><span class="k">Aeration lvl</span><span class="v"><span id="tagAer">0</span> <small>%</small></span></div>
-          <div class="tag"><span class="k">Secondary lvl</span><span class="v"><span id="tagSec">0</span> <small>%</small></span></div>
+          ${levelTags}
           <div class="tag"><span class="k">Capacity util</span><span class="v"><span id="tagUtil">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">BOD in / out</span><span class="v"><span id="tagBodIn">0</span>/<span id="tagBodOut">0</span> <small>mg/L</small></span></div>
+          ${showTp ? `<div class="tag"><span class="k">TP out / ECA</span><span class="v"><span id="tagTpOut">0</span>/<span id="tagTpEca">—</span> <small>mg/L</small></span></div>` : ''}
           <div class="tag"><span class="k">Selected unit</span><span class="v" id="scadaUnit">—</span></div>`;
 
     const disinfectCtrl = showDisinfect
@@ -163,7 +189,7 @@ export class ScadaOverlay {
           <label>Blower <span data-readout="blowerPct">${sp.blowerPct.toFixed(0)}%</span>
             <input type="range" id="spBlower" min="0" max="100" step="1" value="${sp.blowerPct}" />
           </label>
-          <label>Chemical dose <span data-readout="chemPct">${sp.chemicalDosePct}%</span>
+          <label>${chemLabel ? `${chemLabel} dose` : 'Chemical dose'} <span data-readout="chemPct">${sp.chemicalDosePct}%</span>
             <input type="range" id="spChem" min="0" max="100" step="1" value="${sp.chemicalDosePct}" />
           </label>
           <label>Lift pumps <span data-readout="pumpPct">${sp.pumpSpeedPct}%</span>

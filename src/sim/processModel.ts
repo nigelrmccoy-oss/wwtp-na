@@ -35,6 +35,8 @@ export interface SimState {
   capacityUtilPct: number;
   influentBodMgL: number;
   effluentBodMgL: number;
+  influentTpMgL: number;
+  effluentTpMgL: number;
   alarms: Alarm[];
   statusLine: string;
   profile: 'municipal' | 'septic';
@@ -77,6 +79,8 @@ export class ProcessModel {
   private tankLevel: number;
   private influentBod: number;
   private effluentBod: number;
+  private influentTp: number;
+  private effluentTp: number;
   private noiseSeed = Math.random() * 1000;
   private pumpAlarm = false;
 
@@ -86,6 +90,8 @@ export class ProcessModel {
     this.mlss = plant.isSeptic ? 0 : plant.defaultMlss;
     this.influentBod = plant.influentBod;
     this.effluentBod = plant.effluentBod;
+    this.influentTp = plant.influentTpMgL;
+    this.effluentTp = plant.effluentTpMgL;
     this.tankLevel = plant.research.scadaDefaults.tankLevelPct ?? 45;
 
     // Init blower so OTR ≈ OUR at avg-day util + default MLSS (healthy start).
@@ -171,6 +177,8 @@ export class ProcessModel {
       capacityUtilPct,
       influentBodMgL: this.influentBod,
       effluentBodMgL: this.effluentBod,
+      influentTpMgL: this.influentTp,
+      effluentTpMgL: this.effluentTp,
       alarms,
       statusLine: this.buildStatusLine(alarms, capacityUtilPct, shiftElapsed),
       profile: 'septic',
@@ -247,6 +255,18 @@ export class ProcessModel {
       80,
     );
 
+    // TP proxy — chemical dose drives toward plant effluent / ECA
+    this.influentTp = clamp(p.influentTpMgL * (0.9 + 0.12 * diu), p.influentTpMgL * 0.7, p.influentTpMgL * 1.4);
+    const chemFrac = clamp(sp.chemicalDosePct / 100, 0, 1);
+    const tpTarget = p.effluentTpMgL;
+    const tpFloor = p.ecaTpMgL != null ? Math.min(tpTarget, p.ecaTpMgL * 0.85) : tpTarget * 0.7;
+    const tpPoor = this.influentTp * (0.55 - 0.25 * chemFrac); // low dose → higher effluent TP
+    this.effluentTp = clamp(
+      tpPoor * (1 - chemFrac) + tpTarget * chemFrac * 0.55 + tpFloor * chemFrac * 0.45,
+      Math.max(0.02, tpFloor * 0.5),
+      Math.max(1.5, this.influentTp * 0.6),
+    );
+
     const blowerKw = (sp.blowerPct / 100) * p.blowerRatedKw * (0.85 + 0.15 * (this.aerationLevel / 100));
     const pumpKw = (sp.pumpSpeedPct / 100) * p.blowerRatedKw * 0.12;
     const chpCredit = p.research.energy.chpKw ? p.research.energy.chpKw * 0.15 : 0;
@@ -277,6 +297,13 @@ export class ProcessModel {
     if (capacityUtilPct > 100) alarms.push({ id: 'cap_exceed', severity: 'alarm', message: `CAPACITY EXCEED ${capacityUtilPct.toFixed(0)}%` });
     else if (capacityUtilPct > 90) alarms.push({ id: 'cap_warn', severity: 'warn', message: `Near capacity ${capacityUtilPct.toFixed(0)}%` });
     if (this.mlss > 4000) alarms.push({ id: 'mlss_high', severity: 'warn', message: `MLSS high ${this.mlss.toFixed(0)} mg/L` });
+    if (p.ecaTpMgL != null && this.effluentTp > p.ecaTpMgL * 1.15) {
+      alarms.push({
+        id: 'tp_high',
+        severity: 'warn',
+        message: `Effluent TP ${this.effluentTp.toFixed(2)} > ECA ${p.ecaTpMgL} mg/L`,
+      });
+    }
 
     let disinfectionStatus: SimState['disinfectionStatus'] = 'N/A';
     if (p.disinfectionType !== 'none') {
@@ -293,8 +320,9 @@ export class ProcessModel {
       mlssMgL: this.mlss,
       blowerKw: totalKw,
       disinfectionStatus,
-      primaryLevelPct: p.hasPrimary ? this.primaryLevel : 0,
-      aerationLevelPct: this.aerationLevel,
+      // Oxidation ditch: expose ditch inventory via primaryLevelPct (SCADA relabels); hide false 0%.
+      primaryLevelPct: p.hasPrimary || p.hasOxidationDitch ? this.primaryLevel : 0,
+      aerationLevelPct: p.hasOxidationDitch ? this.primaryLevel : this.aerationLevel,
       secondaryLevelPct: this.secondaryLevel,
       wetWellLevelPct: this.wetWellLevel,
       tankLevelPct: 0,
@@ -302,6 +330,8 @@ export class ProcessModel {
       capacityUtilPct,
       influentBodMgL: this.influentBod,
       effluentBodMgL: this.effluentBod,
+      influentTpMgL: this.influentTp,
+      effluentTpMgL: this.effluentTp,
       alarms,
       statusLine: this.buildStatusLine(alarms, capacityUtilPct, shiftElapsed),
       profile: 'municipal',

@@ -42,9 +42,20 @@ export class AudioEngine {
     if (ctx.state === 'suspended') {
       try { await ctx.resume(); } catch { /* ignore */ }
     }
-    if (ctx.state === 'running' && !this.enabled) {
+    if (!this.enabled) {
       await this.prepare();
-      this.enabled = true;
+      // Enable once context is running (or after resume attempt)
+      if (ctx.state === 'running' || ctx.state === 'suspended') {
+        this.enabled = ctx.state === 'running';
+        if (!this.enabled) {
+          try {
+            await ctx.resume();
+            this.enabled = ctx.state === 'running';
+          } catch { /* ignore */ }
+        }
+      }
+    } else if (ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch { /* ignore */ }
     }
   }
 
@@ -85,6 +96,10 @@ export class AudioEngine {
     hasAlarm: boolean;
     septic?: boolean;
   }): void {
+    // Resume AudioContext if browser suspended it — required for audible alarm buzzers
+    if (opts.hasAlarm) {
+      void this.unlock();
+    }
     if (!this.enabled || !this.ctx) return;
     const pump = clamp((opts.pumpSpeedPct - 20) / 100, 0, 1);
     const blow = opts.septic ? 0 : clamp(opts.blowerPct / 100, 0, 1);
@@ -101,7 +116,11 @@ export class AudioEngine {
     if (opts.hasAlarm && !this.alarmActive) {
       this.alarmActive = true;
       this.ensureLoop('alarm');
-      this.fade('alarm', 0.26, 0.04);
+      // Louder than ambience so operators hear the buzzer in playtest / training
+      this.fade('alarm', 0.55, 0.03);
+    } else if (opts.hasAlarm && this.alarmActive) {
+      // Keep gain up if unlock completed after first fire
+      this.fade('alarm', 0.55, 0.08);
     } else if (!opts.hasAlarm && this.alarmActive) {
       this.alarmActive = false;
       this.fade('alarm', 0, 0.25);
@@ -137,7 +156,7 @@ export class AudioEngine {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
+      this.master.gain.value = 0.65;
       this.master.connect(this.ctx.destination);
     }
     return this.ctx;
@@ -247,24 +266,31 @@ export class AudioEngine {
       voice.source = null;
       voice.extras = [noise, bp, lfo, lfoG, g];
     } else if (id === 'alarm') {
+      // Dual-tone industrial buzzer (audible over plant ambience)
       const osc = ctx.createOscillator();
       osc.type = 'square';
       osc.frequency.value = 880;
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'square';
+      osc2.frequency.value = 660;
       const lfo = ctx.createOscillator();
       lfo.type = 'square';
-      lfo.frequency.value = 4;
+      lfo.frequency.value = 3.5;
       const lfoG = ctx.createGain();
-      lfoG.gain.value = 280;
+      lfoG.gain.value = 320;
       lfo.connect(lfoG); lfoG.connect(osc.frequency);
       const g = ctx.createGain();
-      g.gain.value = 0.55;
+      g.gain.value = 0.85;
+      const g2 = ctx.createGain();
+      g2.gain.value = 0.45;
       const hp = ctx.createBiquadFilter();
       hp.type = 'highpass';
-      hp.frequency.value = 400;
+      hp.frequency.value = 350;
       osc.connect(hp); hp.connect(g); g.connect(voice.gain);
-      osc.start(); lfo.start();
+      osc2.connect(g2); g2.connect(voice.gain);
+      osc.start(); osc2.start(); lfo.start();
       voice.source = osc;
-      voice.extras = [lfo, lfoG, g, hp];
+      voice.extras = [osc2, lfo, lfoG, g, g2, hp];
     }
   }
 

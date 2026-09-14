@@ -1,5 +1,7 @@
 /** Types matching src/data/plants.json (research pack — source of truth). */
 
+export type DisinfectionType = 'uv' | 'chlorine' | 'none';
+
 export interface ResearchPlant {
   id: string;
   name: string;
@@ -72,7 +74,11 @@ export interface PlantRuntime {
   primaryClarifierCount: number;
   secondaryClarifierCount: number;
   aerationBasinCount: number;
+  /** UV bank count when disinfectionType === 'uv'; otherwise 0 */
   uvBanks: number;
+  /** Chlorine contact channels when disinfectionType === 'chlorine' */
+  chlorineContactCount: number;
+  disinfectionType: DisinfectionType;
   blowerRatedKw: number;
   layoutScale: number;
   notes: string;
@@ -131,6 +137,17 @@ const MUNI: Record<string, string> = {
   ashbridges: 'Toronto',
 };
 
+/** Prefer chlorine when listed (e.g. ABTP NaOCl primary); UV only when no chlorine. */
+export function resolveDisinfectionType(process: string[]): DisinfectionType {
+  const hasChlorine = process.some((p) =>
+    /chlorine|chlorination|naocl|hypochlorite/i.test(p),
+  );
+  const hasUv = process.some((p) => p === 'uv' || /uv_disinfection/i.test(p));
+  if (hasChlorine) return 'chlorine';
+  if (hasUv) return 'uv';
+  return 'none';
+}
+
 export function toRuntime(p: ResearchPlant): PlantRuntime {
   const avg = p.capacity.avgMld;
   const peak = Math.max(p.capacity.peakMld, avg * 1.2);
@@ -139,6 +156,7 @@ export function toRuntime(p: ResearchPlant): PlantRuntime {
   const hasPrimary = p.process.includes('primary');
   const hasOxidationDitch = p.process.includes('oxidation_ditch');
   const hasTertiary = p.process.includes('tertiary_filtration');
+  const disinfectionType = isSeptic ? 'none' : resolveDisinfectionType(p.process);
 
   let layoutScale =
     size === 'micro' || size === 'septic' ? 0.28 :
@@ -151,52 +169,63 @@ export function toRuntime(p: ResearchPlant): PlantRuntime {
   let primaryClarifierCount = hasPrimary ? (SIZE_RANK[size] ?? 2) + 1 : 0;
   let secondaryClarifierCount = size === 'small' || isSeptic ? 2 : size === 'large' ? 6 : size === 'xlarge' || size === 'extra-large' ? 8 : 4;
   let aerationBasinCount = hasOxidationDitch ? 1 : isSeptic ? 0 : size === 'large' ? 4 : size === 'xlarge' || size === 'extra-large' ? 6 : 2;
-  let uvBanks = isSeptic ? 0 : size === 'small' ? 1 : size === 'large' ? 3 : size === 'xlarge' || size === 'extra-large' ? 6 : 2;
+  let uvBanks = 0;
+  let chlorineContactCount = 0;
   let aerationVolumeM3 = isSeptic ? (p.capacity.avgM3d ?? avg * 1000) * 1.5 : avg * 400;
+
+  const sizeUvBanks =
+    size === 'small' ? 1 : size === 'large' ? 3 : size === 'xlarge' || size === 'extra-large' ? 6 : 2;
+  const sizeClChannels =
+    size === 'small' ? 1 : size === 'large' ? 3 : size === 'xlarge' || size === 'extra-large' ? 4 : 2;
 
   if (p.id === 'farm-septic') {
     layoutScale = 0.28;
     primaryClarifierCount = 0;
     secondaryClarifierCount = 0;
     aerationBasinCount = 0;
-    uvBanks = 0;
     aerationVolumeM3 = 4;
   } else if (p.id === 'st-jacobs') {
     primaryClarifierCount = 0;
     secondaryClarifierCount = 2;
     aerationBasinCount = 1;
-    uvBanks = 1;
     aerationVolumeM3 = 904;
   } else if (p.id === 'waterloo') {
     primaryClarifierCount = 4;
     secondaryClarifierCount = 4;
     aerationBasinCount = 2;
-    uvBanks = 4;
     aerationVolumeM3 = 21345;
   } else if (p.id === 'kitchener') {
     primaryClarifierCount = 4;
     secondaryClarifierCount = 6;
     aerationBasinCount = 4;
-    uvBanks = 3;
     aerationVolumeM3 = 45000;
   } else if (p.id === 'galt') {
     primaryClarifierCount = 3;
     secondaryClarifierCount = 4;
     aerationBasinCount = 2;
-    uvBanks = 2;
     aerationVolumeM3 = 18000;
   } else if (p.id === 'woodward' || p.id === 'hamilton-woodward' || /woodward/i.test(p.name)) {
     layoutScale = 1.9;
     primaryClarifierCount = 6;
     secondaryClarifierCount = 8;
     aerationBasinCount = 6;
-    uvBanks = 4;
   } else if (p.id.includes('ashbridges') || /ashbridges/i.test(p.name)) {
     layoutScale = 2.1;
     primaryClarifierCount = 8;
     secondaryClarifierCount = 10;
     aerationBasinCount = 8;
-    uvBanks = 6;
+  }
+
+  if (disinfectionType === 'uv') {
+    if (p.id === 'st-jacobs') uvBanks = 1;
+    else if (p.id === 'waterloo') uvBanks = 4;
+    else if (p.id === 'kitchener') uvBanks = 3;
+    else if (p.id === 'galt') uvBanks = 2;
+    else uvBanks = sizeUvBanks;
+  } else if (disinfectionType === 'chlorine') {
+    if (p.id === 'woodward' || p.id === 'hamilton-woodward' || /woodward/i.test(p.name)) chlorineContactCount = 4;
+    else if (p.id.includes('ashbridges') || /ashbridges/i.test(p.name)) chlorineContactCount = 4;
+    else chlorineContactCount = sizeClChannels;
   }
 
   const flowUnit: 'MLD' | 'm3/d' = isSeptic || p.capacity.unit === 'm3/d' ? 'm3/d' : 'MLD';
@@ -223,6 +252,8 @@ export function toRuntime(p: ResearchPlant): PlantRuntime {
     secondaryClarifierCount,
     aerationBasinCount,
     uvBanks,
+    chlorineContactCount,
+    disinfectionType,
     blowerRatedKw: Math.max(isSeptic ? 0.5 : 30, p.scadaDefaults.powerKw),
     layoutScale,
     notes: p.capacity.notes + (hasTertiary ? ' · tertiary' : ''),

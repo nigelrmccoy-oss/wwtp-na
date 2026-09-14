@@ -1,6 +1,6 @@
 import './style.css';
 import { mountMenu } from './ui/menu';
-import { ScadaOverlay } from './ui/scada';
+import { ScadaOverlay, type SimSpeed } from './ui/scada';
 import { PlantScene } from './world/plantScene';
 import { ProcessModel } from './sim/processModel';
 import { audio } from './audio/AudioEngine';
@@ -17,6 +17,8 @@ let raf = 0;
 let last = performance.now();
 let simAccum = 0;
 let onSite = false;
+/** Default slower for readable training; operator can raise to 4× / 12×. */
+let simSpeed: SimSpeed = 4;
 
 const menu = mountMenu(menuHost, async ({ plant }) => {
   await audio.unlock();
@@ -26,10 +28,16 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   hudHost.classList.remove('hidden');
   hintEl.classList.remove('hidden');
   onSite = true;
+  simSpeed = 4;
 
   model = new ProcessModel(plant);
   model.resetShift();
-  scada = new ScadaOverlay(hudHost, model);
+  scada = new ScadaOverlay(hudHost, model, {
+    simSpeed,
+    onSimSpeedChange: (s) => {
+      simSpeed = s;
+    },
+  });
 
   scene = new PlantScene(canvas, plant, (unit) => {
     scada?.setSelectedUnit(unit?.label ?? null);
@@ -44,7 +52,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     raf = requestAnimationFrame(tick);
     const dtWall = Math.min(0.05, (now - last) / 1000);
     last = now;
-    const simDt = dtWall * 12;
+    const simDt = dtWall * simSpeed;
     simAccum += simDt;
     if (model && scada && simAccum > 0) {
       const state = model.step(simAccum);

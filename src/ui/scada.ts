@@ -2,15 +2,25 @@ import type { ProcessModel, SimState, Setpoints } from '../sim/processModel';
 import { formatFlow } from '../data/plantTypes';
 import { audio } from '../audio/AudioEngine';
 
+export type SimSpeed = 1 | 4 | 12;
+
 export class ScadaOverlay {
   readonly el: HTMLElement;
   private model: ProcessModel;
   private selectedUnitLabel = '—';
   private septic: boolean;
+  private simSpeed: SimSpeed;
+  private onSimSpeedChange: (s: SimSpeed) => void;
 
-  constructor(host: HTMLElement, model: ProcessModel) {
+  constructor(
+    host: HTMLElement,
+    model: ProcessModel,
+    opts?: { simSpeed?: SimSpeed; onSimSpeedChange?: (s: SimSpeed) => void },
+  ) {
     this.model = model;
     this.septic = model.plant.isSeptic;
+    this.simSpeed = opts?.simSpeed ?? 4;
+    this.onSimSpeedChange = opts?.onSimSpeedChange ?? (() => {});
     this.el = document.createElement('div');
     this.el.id = 'scada';
     this.el.className = 'scada-window';
@@ -29,6 +39,10 @@ export class ScadaOverlay {
     if (el) el.textContent = this.selectedUnitLabel;
   }
 
+  getSimSpeed(): SimSpeed {
+    return this.simSpeed;
+  }
+
   update(state: SimState): void {
     const set = (id: string, v: string) => {
       const n = this.el.querySelector(`#${id}`);
@@ -42,7 +56,7 @@ export class ScadaOverlay {
     set('tagKw', state.blowerKw.toFixed(p.isSeptic ? 2 : 0));
     set('tagUtil', state.capacityUtilPct.toFixed(0));
     set('tagClock', formatSimClock(state.timeSec));
-    set('statusStrip', state.statusLine);
+    set('statusStrip', `${state.statusLine} · ${this.simSpeed}×`);
     set('scadaUnit', this.selectedUnitLabel);
 
     if (this.septic) {
@@ -57,16 +71,18 @@ export class ScadaOverlay {
     } else {
       set('tagDO', state.doMgL.toFixed(2));
       set('tagMLSS', state.mlssMgL.toFixed(0));
-      set('tagUV', state.uvStatus);
+      set('tagDisinfect', state.disinfectionStatus);
+      set('tagWetWell', state.wetWellLevelPct.toFixed(0));
       set('tagPrim', state.primaryLevelPct.toFixed(0));
       set('tagAer', state.aerationLevelPct.toFixed(0));
       set('tagSec', state.secondaryLevelPct.toFixed(0));
       set('tagBodIn', state.influentBodMgL.toFixed(0));
       set('tagBodOut', state.effluentBodMgL.toFixed(1));
-      const uvEl = this.el.querySelector('#tagUV') as HTMLElement | null;
-      if (uvEl) {
-        uvEl.classList.toggle('tag-ok', state.uvStatus === 'ONLINE');
-        uvEl.classList.toggle('tag-bad', state.uvStatus !== 'ONLINE');
+      const disEl = this.el.querySelector('#tagDisinfect') as HTMLElement | null;
+      if (disEl) {
+        const na = state.disinfectionStatus === 'N/A';
+        disEl.classList.toggle('tag-ok', state.disinfectionStatus === 'ONLINE');
+        disEl.classList.toggle('tag-bad', !na && state.disinfectionStatus !== 'ONLINE');
       }
     }
 
@@ -88,9 +104,19 @@ export class ScadaOverlay {
     if (el) el.textContent = text;
   }
 
+  private disinfectionLabel(): { tag: string; checkbox: string } {
+    const t = this.model.plant.disinfectionType;
+    if (t === 'chlorine') return { tag: 'Chlorine status', checkbox: 'Chlorine feed online' };
+    if (t === 'uv') return { tag: 'UV status', checkbox: 'UV banks online' };
+    return { tag: 'Disinfection', checkbox: 'Disinfection online' };
+  }
+
   private renderShell(): void {
     const sp = this.model.setpoints;
     const title = this.septic ? `SCADA · ${this.model.plant.nameShort}` : `SCADA · ${this.model.plant.nameShort} WWTP`;
+    const dis = this.disinfectionLabel();
+    const showDisinfect = !this.septic && this.model.plant.disinfectionType !== 'none';
+
     const tags = this.septic
       ? `
           <div class="tag"><span class="k">Influent</span><span class="v"><span id="tagInfluent">0</span> <small id="tagFlowUnit">m³/d</small></span></div>
@@ -107,13 +133,20 @@ export class ScadaOverlay {
           <div class="tag"><span class="k">Aeration DO</span><span class="v"><span id="tagDO">0</span> <small>mg/L</small></span></div>
           <div class="tag"><span class="k">MLSS</span><span class="v"><span id="tagMLSS">0</span> <small>mg/L</small></span></div>
           <div class="tag"><span class="k">Blower/Power</span><span class="v"><span id="tagKw">0</span> <small>kW</small></span></div>
-          <div class="tag"><span class="k">UV status</span><span class="v"><span id="tagUV">—</span></span></div>
+          ${showDisinfect ? `<div class="tag"><span class="k">${dis.tag}</span><span class="v"><span id="tagDisinfect">—</span></span></div>` : ''}
+          <div class="tag"><span class="k">Wet-well lvl</span><span class="v"><span id="tagWetWell">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">Primary lvl</span><span class="v"><span id="tagPrim">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">Aeration lvl</span><span class="v"><span id="tagAer">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">Secondary lvl</span><span class="v"><span id="tagSec">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">Capacity util</span><span class="v"><span id="tagUtil">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">BOD in / out</span><span class="v"><span id="tagBodIn">0</span>/<span id="tagBodOut">0</span> <small>mg/L</small></span></div>
           <div class="tag"><span class="k">Selected unit</span><span class="v" id="scadaUnit">—</span></div>`;
+
+    const disinfectCtrl = showDisinfect
+      ? `<label class="check">
+            <input type="checkbox" id="spDisinfect" ${sp.disinfectionOnline ? 'checked' : ''} /> ${dis.checkbox}
+          </label>`
+      : '';
 
     const controls = this.septic
       ? `
@@ -127,18 +160,24 @@ export class ScadaOverlay {
           <label>DO target <span data-readout="doTarget">${sp.doTarget.toFixed(1)}</span> mg/L
             <input type="range" id="spDo" min="0.5" max="4.0" step="0.1" value="${sp.doTarget}" />
           </label>
-          <label>Blower <span data-readout="blowerPct">${sp.blowerPct}%</span>
+          <label>Blower <span data-readout="blowerPct">${sp.blowerPct.toFixed(0)}%</span>
             <input type="range" id="spBlower" min="0" max="100" step="1" value="${sp.blowerPct}" />
           </label>
           <label>Chemical dose <span data-readout="chemPct">${sp.chemicalDosePct}%</span>
             <input type="range" id="spChem" min="0" max="100" step="1" value="${sp.chemicalDosePct}" />
           </label>
-          <label>Pump speed <span data-readout="pumpPct">${sp.pumpSpeedPct}%</span>
+          <label>Lift pumps <span data-readout="pumpPct">${sp.pumpSpeedPct}%</span>
             <input type="range" id="spPump" min="40" max="120" step="1" value="${sp.pumpSpeedPct}" />
           </label>
-          <label class="check">
-            <input type="checkbox" id="spUv" ${sp.uvOnline ? 'checked' : ''} /> UV banks online
-          </label>`;
+          <p class="scada-hint">Influent is diurnal/wet-weather. Pumps move wet-well inventory — low pump → high level / overflow risk.</p>
+          ${disinfectCtrl}`;
+
+    const speedBtns = ([1, 4, 12] as SimSpeed[])
+      .map(
+        (s) =>
+          `<button type="button" class="speed-btn${s === this.simSpeed ? ' active' : ''}" data-speed="${s}">${s}×</button>`,
+      )
+      .join('');
 
     this.el.innerHTML = `
       <div class="scada-titlebar">
@@ -147,7 +186,11 @@ export class ScadaOverlay {
       </div>
       <div class="scada-body">
         <div class="scada-col tags"><div class="tag-grid">${tags}</div></div>
-        <div class="scada-col controls">${controls}</div>
+        <div class="scada-col controls">
+          ${controls}
+          <div class="ctrl-head" style="margin-top:.65rem">Sim speed</div>
+          <div class="speed-row" id="simSpeedRow">${speedBtns}</div>
+        </div>
         <div class="scada-col alarms">
           <div class="ctrl-head">Alarms</div>
           <div id="alarmList" class="alarm-list"></div>
@@ -170,10 +213,23 @@ export class ScadaOverlay {
     bindRange('spBlower', 'blowerPct', Number);
     bindRange('spChem', 'chemicalDosePct', Number);
     bindRange('spPump', 'pumpSpeedPct', Number);
-    const uv = this.el.querySelector('#spUv') as HTMLInputElement | null;
-    uv?.addEventListener('change', () => {
-      this.model.updateSetpoint('uvOnline', uv.checked);
+    const dis = this.el.querySelector('#spDisinfect') as HTMLInputElement | null;
+    dis?.addEventListener('change', () => {
+      this.model.updateSetpoint('disinfectionOnline', dis.checked);
       audio.uiClick();
+    });
+
+    this.el.querySelectorAll('.speed-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const s = Number((btn as HTMLElement).dataset.speed) as SimSpeed;
+        if (s !== 1 && s !== 4 && s !== 12) return;
+        this.simSpeed = s;
+        this.el.querySelectorAll('.speed-btn').forEach((b) => {
+          b.classList.toggle('active', Number((b as HTMLElement).dataset.speed) === s);
+        });
+        this.onSimSpeedChange(s);
+        audio.uiClick();
+      });
     });
   }
 }

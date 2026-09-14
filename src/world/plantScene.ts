@@ -37,6 +37,8 @@ export class PlantScene {
   private disposed = false;
   private plant: PlantConfig;
   private animId = 0;
+  private onKeyDown: ((e: KeyboardEvent) => void) | null = null;
+  private onKeyUp: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, plant: PlantConfig, onSelect: UnitSelectCb) {
     this.plant = plant;
@@ -82,6 +84,10 @@ export class PlantScene {
     this.disposed = true;
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onResize);
+    if (this.onKeyDown) window.removeEventListener('keydown', this.onKeyDown);
+    if (this.onKeyUp) window.removeEventListener('keyup', this.onKeyUp);
+    this.onKeyDown = null;
+    this.onKeyUp = null;
     this.renderer.dispose();
   }
 
@@ -230,7 +236,18 @@ export class PlantScene {
               z: -12,
               count: this.plant.secondaryClarifierCount,
             },
-            { id: 'uv', label: 'UV / Disinfection', kind: 'uv', x: 48, z: 4, count: this.plant.uvBanks },
+            this.plant.disinfectionType === 'chlorine'
+              ? {
+                  id: 'disinfection',
+                  label: 'Chlorine Contact',
+                  kind: 'chlorine',
+                  x: 48,
+                  z: 4,
+                  count: this.plant.chlorineContactCount,
+                }
+              : this.plant.disinfectionType === 'uv'
+                ? { id: 'disinfection', label: 'UV Disinfection', kind: 'uv', x: 48, z: 4, count: this.plant.uvBanks }
+                : { id: 'disinfection', label: 'Disinfection', kind: 'uv', x: 48, z: 4, count: 0 },
             { id: 'solids', label: 'Solids Handling', kind: 'rect', x: -10, z: 22, count: 1 },
           ];
 
@@ -301,6 +318,32 @@ export class PlantScene {
           lamp.userData.unitId = u.id;
           group.add(lamp);
         }
+      } else if (u.kind === 'chlorine') {
+        // Chlorine contact channels — no UV lamp meshes
+        const n = Math.max(1, u.count);
+        const channel = new THREE.Mesh(
+          new THREE.BoxGeometry(10 + n * 1.2, 2.4, 8),
+          new THREE.MeshStandardMaterial({ color: 0x5a6e78, roughness: 0.65 }),
+        );
+        channel.position.y = 1.2;
+        channel.castShadow = true;
+        channel.userData.unitId = u.id;
+        group.add(channel);
+        for (let i = 0; i < n; i++) {
+          const baffle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.35, 1.6, 6.5),
+            new THREE.MeshStandardMaterial({ color: 0x8a9aa4, roughness: 0.7 }),
+          );
+          baffle.position.set(-3.5 + i * 2.4, 1.5, 0);
+          baffle.userData.unitId = u.id;
+          group.add(baffle);
+        }
+        const water = new THREE.Mesh(
+          new THREE.BoxGeometry(9 + n * 1.1, 0.12, 7),
+          new THREE.MeshStandardMaterial({ color: 0x3a8a9a, roughness: 0.25, metalness: 0.2 }),
+        );
+        water.position.set(0, 2.15, 0);
+        group.add(water);
       } else {
         // rect / headworks / solids
         const building = new THREE.Mesh(
@@ -367,13 +410,17 @@ export class PlantScene {
   }
 
   private bindInput(canvas: HTMLCanvasElement): void {
-    window.addEventListener('keydown', (e) => {
+    this.onKeyDown = (e: KeyboardEvent) => {
       this.keys.add(e.code);
       if (e.code === 'KeyC') {
         this.mode = this.mode === 'orbit' ? 'walk' : 'orbit';
       }
-    });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    };
+    this.onKeyUp = (e: KeyboardEvent) => {
+      this.keys.delete(e.code);
+    };
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
 
     let dragging = false;
     let lastX = 0;

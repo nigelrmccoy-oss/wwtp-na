@@ -11,7 +11,8 @@ export interface Setpoints {
   blowerPct: number;
   chemicalDosePct: number;
   pumpSpeedPct: number;
-  uvOnline: boolean;
+  /** Disinfection online (UV banks or chlorine feed / contact, per plant). */
+  disinfectionOnline: boolean;
 }
 
 export interface SimState {
@@ -22,10 +23,12 @@ export interface SimState {
   doMgL: number;
   mlssMgL: number;
   blowerKw: number;
-  uvStatus: 'ONLINE' | 'OFFLINE' | 'FAULT' | 'N/A';
+  disinfectionStatus: 'ONLINE' | 'OFFLINE' | 'FAULT' | 'N/A';
   primaryLevelPct: number;
   aerationLevelPct: number;
   secondaryLevelPct: number;
+  /** Headworks / wet-well level % (municipal) */
+  wetWellLevelPct: number;
   /** Septic tank level % */
   tankLevelPct: number;
   pumpAlarmFloat: boolean;
@@ -55,6 +58,11 @@ function diurnalFactor(tSec: number): number {
   return clamp(night + 0.55 * morning + 0.45 * evening, 0.45, 1.55);
 }
 
+/** OTR coefficient: kg-equivalent DO transfer per hour at 100% blower (tuned for training). */
+const OTR_AT_100 = 6.2;
+/** OUR base at MLSS=3000 mg/L and util=1.0 */
+const OUR_BASE = 2.15;
+
 export class ProcessModel {
   readonly plant: PlantRuntime;
   setpoints: Setpoints;
@@ -62,6 +70,7 @@ export class ProcessModel {
   private shiftStart = 8 * 3600;
   private doMgL: number;
   private mlss: number;
+  private wetWellLevel = 52;
   private primaryLevel = 55;
   private aerationLevel = 72;
   private secondaryLevel = 48;
@@ -78,15 +87,19 @@ export class ProcessModel {
     this.influentBod = plant.influentBod;
     this.effluentBod = plant.effluentBod;
     this.tankLevel = plant.research.scadaDefaults.tankLevelPct ?? 45;
-    const initBlower = plant.isSeptic
-      ? 0
-      : clamp((plant.research.scadaDefaults.powerKw / Math.max(plant.blowerRatedKw, 1)) * 100 * 0.85, 35, 70);
+
+    // Init blower so OTR ≈ OUR at avg-day util + default MLSS (healthy start).
+    const mlssRatio = plant.isSeptic ? 0 : this.mlss / 3000;
+    // Size blowers for ~1.25× avg-day (morning peak) so defaults stay healthy at shift start (08:00).
+    const ourAtPeakish = mlssRatio * 1.25 * OUR_BASE;
+    const blowerForBalance = plant.isSeptic ? 0 : clamp((ourAtPeakish / OTR_AT_100) * 100 * 1.12, 48, 72);
+
     this.setpoints = {
       doTarget: plant.isSeptic ? 0 : plant.defaultDo,
-      blowerPct: initBlower,
+      blowerPct: blowerForBalance,
       chemicalDosePct: plant.isSeptic ? 0 : 40,
       pumpSpeedPct: plant.isSeptic ? 60 : 100,
-      uvOnline: !plant.isSeptic,
+      disinfectionOnline: !plant.isSeptic && plant.disinfectionType !== 'none',
     };
   }
 
@@ -110,7 +123,7 @@ export class ProcessModel {
     const diu = diurnalFactor(this.t);
     const noise = 0.05 * Math.sin(this.t * 0.11 + this.noiseSeed);
     const pumpFactor = clamp(sp.pumpSpeedPct / 100, 0.2, 1.2);
-    // Demand into tank
+    // Demand into tank — independent of pump
     let influent = p.avgDayFlowMld * diu * (1 + noise);
     influent = clamp(influent, p.avgDayFlowMld * 0.3, p.peakCapacityMld);
 
@@ -148,10 +161,11 @@ export class ProcessModel {
       doMgL: 0,
       mlssMgL: 0,
       blowerKw: powerKw,
-      uvStatus: 'N/A',
+      disinfectionStatus: 'N/A',
       primaryLevelPct: 0,
       aerationLevelPct: 0,
       secondaryLevelPct: 0,
+      wetWellLevelPct: 0,
       tankLevelPct: this.tankLevel,
       pumpAlarmFloat: this.pumpAlarm,
       capacityUtilPct,
@@ -170,8 +184,9 @@ export class ProcessModel {
 
     const diu = diurnalFactor(this.t);
     const noise = 0.04 * Math.sin(this.t * 0.07 + this.noiseSeed) + 0.02 * Math.sin(this.t * 0.31);
-    const pumpFactor = clamp(sp.pumpSpeedPct / 100, 0.4, 1.25);
-    let influent = p.avgDayFlowMld * diu * pumpFactor * (1 + noise);
+
+    // Influent is independent of plant pumps (collection / diurnal / wet weather).
+    let influent = p.avgDayFlowMld * diu * (1 + noise);
     influent = clamp(influent, 0.05, p.peakCapacityMld * 1.02);
 
     const stormPhase = (this.t % 2700) / 2700;
@@ -180,7 +195,22 @@ export class ProcessModel {
     }
 
     const util = influent / p.designCapacityMld;
-    const levelDrive = (util - 0.7) * 18 + (sp.pumpSpeedPct - 100) * 0.08;
+    const pumpFactor = clamp(sp.pumpSpeedPct / 100, 0.35, 1.25);
+
+    // Wet-well / headworks: fill from influent, drain by lift pumps (not inventing flow).
+    const fillDrive = (influent / Math.max(p.avgDayFlowMld, 0.1)) * 14;
+    const drainDrive = pumpFactor * 14;
+    this.wetWellLevel = clamp(
+      this.wetWellLevel + (fillDrive - drainDrive - (this.wetWellLevel - 52) * 0.08) * dt * 0.02,
+      8,
+      99,
+    );
+
+    // Throughput to process train limited by pump + wet-well inventory
+    const throughputFactor = clamp(pumpFactor * (0.55 + 0.45 * (this.wetWellLevel / 100)), 0.35, 1.15);
+    const processFlow = influent * throughputFactor;
+
+    const levelDrive = (util - 0.7) * 14 + (this.wetWellLevel - 55) * 0.12 + (100 - sp.pumpSpeedPct) * 0.06;
     this.primaryLevel = clamp(this.primaryLevel + (levelDrive - (this.primaryLevel - 55) * 0.15) * dt * 0.02, 15, 98);
     this.aerationLevel = clamp(this.aerationLevel + (levelDrive * 0.7 - (this.aerationLevel - 72) * 0.12) * dt * 0.02, 25, 97);
     this.secondaryLevel = clamp(
@@ -189,20 +219,28 @@ export class ProcessModel {
       95,
     );
 
-    const otr = (sp.blowerPct / 100) * 4.8;
-    const our = (this.mlss / 3000) * (influent / Math.max(p.avgDayFlowMld, 0.1)) * 3.2;
+    // DO mass balance — OTR vs OUR; autoTrim holds toward doTarget when blower is adequate.
+    const flowRatio = processFlow / Math.max(p.avgDayFlowMld, 0.1);
+    const otr = (sp.blowerPct / 100) * OTR_AT_100;
+    // Soften flow spikes so diurnal alone does not crash DO at healthy blower %.
+    const ourLoad = clamp(0.75 + 0.35 * flowRatio, 0.75, 1.35);
+    const our = (this.mlss / 3000) * ourLoad * OUR_BASE;
     const doError = sp.doTarget - this.doMgL;
-    const autoTrim = doError * 0.35 * (sp.blowerPct / 100);
-    this.doMgL = clamp(this.doMgL + (otr - our + autoTrim) * (dt / 3600) * 60, 0.2, 8);
-    if (sp.blowerPct < 15) this.doMgL = clamp(this.doMgL - 0.8 * dt * 0.05, 0.2, 8);
+    // Stronger trim when blowers are on; weak when starved (<20%).
+    const trimGain = 1.35 * clamp(sp.blowerPct / 50, 0.12, 1.4);
+    const autoTrim = doError * trimGain;
+    // Dynamics tuned so defaults hold ~1.8–2.5 mg/L; mismanagement still alarms.
+    this.doMgL = clamp(this.doMgL + (otr - our + autoTrim) * (dt / 60) * 0.55, 0.2, 8);
+    if (sp.blowerPct < 15) this.doMgL = clamp(this.doMgL - 0.55 * dt * 0.04, 0.2, 8);
 
-    const growth = util * 12 - (sp.chemicalDosePct / 100) * 4;
+    const growth = (processFlow / Math.max(p.designCapacityMld, 0.1)) * 12 - (sp.chemicalDosePct / 100) * 4;
     this.mlss = clamp(this.mlss + (growth - (this.mlss - p.defaultMlss) * 0.008) * dt * 0.015, 800, 4500);
 
     const bodBase = p.influentBod;
     this.influentBod = clamp(bodBase * (0.85 + 0.25 * diu) + 15 * noise, bodBase * 0.6, bodBase * 1.6);
+    // BOD removal from aeration/chemicals only — disinfection is not a BOD unit.
     const removal =
-      0.82 + 0.08 * clamp(this.doMgL / 2.0, 0, 1.2) + 0.04 * clamp(sp.chemicalDosePct / 50, 0, 1.2) - (sp.uvOnline ? 0 : 0.05);
+      0.82 + 0.08 * clamp(this.doMgL / 2.0, 0, 1.2) + 0.04 * clamp(sp.chemicalDosePct / 50, 0, 1.2);
     this.effluentBod = clamp(
       this.influentBod * (1 - clamp(removal, 0.5, 0.96)) * 0.35 + p.effluentBod * 0.65,
       Math.max(1, p.effluentBod * 0.4),
@@ -214,22 +252,36 @@ export class ProcessModel {
     const chpCredit = p.research.energy.chpKw ? p.research.energy.chpKw * 0.15 : 0;
     const totalKw = Math.max(5, blowerKw + pumpKw - chpCredit * (sp.blowerPct / 100) * 0.2);
 
-    const uvOk = sp.uvOnline;
-    let effluent = influent * (0.97 + 0.01 * (sp.chemicalDosePct / 100));
-    if (!uvOk) effluent *= 0.98;
+    const disOk = p.disinfectionType === 'none' ? true : sp.disinfectionOnline;
+    let effluent = processFlow * (0.97 + 0.01 * (sp.chemicalDosePct / 100));
     if (this.secondaryLevel > 92) effluent *= 1.05;
+    if (this.wetWellLevel > 92) effluent *= 1.02;
 
     const capacityUtilPct = (influent / p.designCapacityMld) * 100;
     const alarms: Alarm[] = [];
     if (this.doMgL < 1.0) alarms.push({ id: 'do_low', severity: 'alarm', message: `DO LOW ${this.doMgL.toFixed(1)} mg/L` });
     else if (this.doMgL < 1.5) alarms.push({ id: 'do_warn', severity: 'warn', message: `DO marginal ${this.doMgL.toFixed(1)} mg/L` });
-    if (this.primaryLevel > 90 || this.aerationLevel > 92 || this.secondaryLevel > 90) {
+    if (this.wetWellLevel > 90 || this.primaryLevel > 90 || this.aerationLevel > 92 || this.secondaryLevel > 90) {
       alarms.push({ id: 'overflow', severity: 'alarm', message: 'OVERFLOW RISK — high tank level' });
+    } else if (this.wetWellLevel > 82 && sp.pumpSpeedPct < 70) {
+      alarms.push({ id: 'wetwell_high', severity: 'warn', message: `Wet-well high ${this.wetWellLevel.toFixed(0)}% — raise pumps` });
     }
-    if (!uvOk && influent > 0.2) alarms.push({ id: 'uv_flow', severity: 'alarm', message: 'UV OFFLINE with flow on plant' });
+    if (p.disinfectionType !== 'none' && !disOk && influent > 0.2) {
+      const label = p.disinfectionType === 'chlorine' ? 'CHLORINE FEED OFFLINE' : 'UV OFFLINE';
+      alarms.push({
+        id: 'disinfect_flow',
+        severity: 'alarm',
+        message: `${label} with flow on plant`,
+      });
+    }
     if (capacityUtilPct > 100) alarms.push({ id: 'cap_exceed', severity: 'alarm', message: `CAPACITY EXCEED ${capacityUtilPct.toFixed(0)}%` });
     else if (capacityUtilPct > 90) alarms.push({ id: 'cap_warn', severity: 'warn', message: `Near capacity ${capacityUtilPct.toFixed(0)}%` });
     if (this.mlss > 4000) alarms.push({ id: 'mlss_high', severity: 'warn', message: `MLSS high ${this.mlss.toFixed(0)} mg/L` });
+
+    let disinfectionStatus: SimState['disinfectionStatus'] = 'N/A';
+    if (p.disinfectionType !== 'none') {
+      disinfectionStatus = disOk ? 'ONLINE' : 'OFFLINE';
+    }
 
     const shiftElapsed = this.t - this.shiftStart;
     return {
@@ -240,10 +292,11 @@ export class ProcessModel {
       doMgL: this.doMgL,
       mlssMgL: this.mlss,
       blowerKw: totalKw,
-      uvStatus: uvOk ? 'ONLINE' : 'OFFLINE',
+      disinfectionStatus,
       primaryLevelPct: p.hasPrimary ? this.primaryLevel : 0,
       aerationLevelPct: this.aerationLevel,
       secondaryLevelPct: this.secondaryLevel,
+      wetWellLevelPct: this.wetWellLevel,
       tankLevelPct: 0,
       pumpAlarmFloat: false,
       capacityUtilPct,

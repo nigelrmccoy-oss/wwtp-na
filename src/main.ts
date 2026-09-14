@@ -88,7 +88,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   );
   setModeBadge('orbit');
 
-  // Attribution footer
+  // Attribution footer (OSM only — DEM has its own HUD badge)
   let attr = document.getElementById('geoAttr');
   if (!attr) {
     attr = document.createElement('div');
@@ -96,8 +96,24 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     attr.className = 'geo-attr';
     document.getElementById('app')!.appendChild(attr);
   }
-  attr.textContent = scene.attribution || '© OpenStreetMap contributors';
+  const osmOnly = (scene.attribution || '© OpenStreetMap contributors').split('·')[0].trim();
+  attr.textContent = osmOnly || '© OpenStreetMap contributors';
   attr.classList.remove('hidden');
+
+  // DEM source HUD badge (procedural vs Open-Meteo)
+  let demHud = document.getElementById('demHudBadge');
+  if (!demHud) {
+    demHud = document.createElement('div');
+    demHud.id = 'demHudBadge';
+    demHud.className = 'dem-hud-badge';
+    document.getElementById('app')!.appendChild(demHud);
+  }
+  const demSrc = scene.demSource || '';
+  const procedural = /procedural|noise/i.test(demSrc);
+  demHud.textContent = procedural ? 'DEM: procedural' : 'DEM: Open-Meteo';
+  demHud.dataset.source = procedural ? 'procedural' : 'open-meteo';
+  demHud.classList.remove('hidden');
+  demHud.title = demSrc || demHud.textContent;
 
   // Autopilot HUD badge
   let apHud = document.getElementById('apHudBadge');
@@ -157,6 +173,7 @@ function teardownRun(): void {
   model = null;
   hudHost.querySelectorAll('.scada-window').forEach((n) => n.remove());
   document.getElementById('geoAttr')?.classList.add('hidden');
+  document.getElementById('demHudBadge')?.classList.add('hidden');
   document.getElementById('apHudBadge')?.classList.add('hidden');
 }
 

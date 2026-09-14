@@ -204,8 +204,19 @@ button:hover{filter:brightness(1.08)}
   color:#c0d0e0;
 }
 
-.ap-hud-badge{
+.dem-hud-badge{
   position:absolute;z-index:4;left:12px;top:48px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11px;font-weight:800;letter-spacing:.06em;
+  padding:.3rem .55rem;border-radius:4px;
+  border:1px solid #4a5a78;background:rgba(12,20,36,.88);color:#9ec0e8;
+  pointer-events:none;
+}
+.dem-hud-badge[data-source="procedural"]{
+  border-color:#6a5a30;background:rgba(36,28,10,.88);color:#ffd666;
+}
+.ap-hud-badge{
+  position:absolute;z-index:4;left:12px;top:84px;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   font-size:12px;font-weight:800;letter-spacing:.1em;
   padding:.35rem .65rem;border-radius:4px;

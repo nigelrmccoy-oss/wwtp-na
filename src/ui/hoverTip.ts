@@ -101,6 +101,7 @@ export class HoverTip {
   readonly el: HTMLElement;
   private onFocusScada: FocusScadaFn;
   private currentIds: string[] = [];
+  private currentUnitId: string | null = null;
 
   constructor(host: HTMLElement, onFocusScada: FocusScadaFn) {
     this.onFocusScada = onFocusScada;
@@ -108,6 +109,13 @@ export class HoverTip {
     this.el.className = 'hover-tip hidden';
     this.el.setAttribute('role', 'tooltip');
     host.appendChild(this.el);
+    // Leaving the tip card clears it (canvas leave is ignored when entering tip)
+    this.el.addEventListener('pointerleave', (e) => {
+      const rt = e.relatedTarget as Node | null;
+      const canvas = document.getElementById('c');
+      if (canvas && rt && (rt === canvas || canvas.contains(rt))) return;
+      this.hide();
+    });
   }
 
   destroy(): void {
@@ -117,29 +125,34 @@ export class HoverTip {
   hide(): void {
     this.el.classList.add('hidden');
     this.el.innerHTML = '';
+    this.currentUnitId = null;
+    this.currentIds = [];
   }
 
   show(unitId: string, label: string, clientX: number, clientY: number): void {
-    const ex = explainerFor(unitId, label);
-    this.currentIds = ex.scadaControls;
-    const btn =
-      ex.scadaControls.length > 0
-        ? `<button type="button" class="hover-open" id="hoverOpenCtrl">Open controls</button>`
-        : '';
-    this.el.innerHTML = `
+    if (unitId !== this.currentUnitId) {
+      const ex = explainerFor(unitId, label);
+      this.currentUnitId = unitId;
+      this.currentIds = ex.scadaControls;
+      const btn =
+        ex.scadaControls.length > 0
+          ? `<button type="button" class="hover-open" id="hoverOpenCtrl">Open controls</button>`
+          : '';
+      this.el.innerHTML = `
       <div class="hover-title">${ex.name}</div>
       <div class="hover-blurb">${ex.blurb}</div>
       ${btn}
     `;
+      const b = this.el.querySelector('#hoverOpenCtrl');
+      b?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        audio.uiClick();
+        this.onFocusScada(this.currentIds);
+      });
+    }
     this.el.classList.remove('hidden');
     this.position(clientX, clientY);
-
-    const b = this.el.querySelector('#hoverOpenCtrl');
-    b?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      audio.uiClick();
-      this.onFocusScada(this.currentIds);
-    });
   }
 
   position(clientX: number, clientY: number): void {

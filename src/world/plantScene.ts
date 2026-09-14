@@ -34,6 +34,7 @@ export class PlantScene {
   readonly camera: THREE.PerspectiveCamera;
   readonly units: UnitInfo[] = [];
   attribution = '';
+  demSource = '';
 
   private root: THREE.Group;
   private processRoot: THREE.Group;
@@ -61,7 +62,6 @@ export class PlantScene {
   private pointerDownY = 0;
   private pointerMoved = false;
   private textures: PlantTextures;
-  private hoverUnitId: string | null = null;
   private mats: {
     concrete: THREE.MeshStandardMaterial;
     concreteAlt: THREE.MeshStandardMaterial;
@@ -202,6 +202,7 @@ export class PlantScene {
 
     const osm = buildOsmSurroundings(geo, this.textures, this.plant.id);
     this.attribution = osm.attribution;
+    this.demSource = geo?.dem?.source || geo?.attribution?.dem || osm.attribution;
     this.root.add(osm.group);
 
     // Align process train toward OSM WWTP footprint when present
@@ -563,8 +564,11 @@ export class PlantScene {
       this.pitch -= dy * 0.004;
       this.pitch = Math.max(-1.2, Math.min(0.2, this.pitch));
     });
-    canvas.addEventListener('pointerleave', () => {
-      this.hoverUnitId = null;
+    canvas.addEventListener('pointerleave', (e) => {
+      // Keep tip alive when pointer moves onto the hover card (Open controls)
+      const rt = e.relatedTarget as Node | null;
+      const tip = document.querySelector('.hover-tip');
+      if (tip && rt && tip.contains(rt)) return;
       this.onHover?.(null, 0, 0);
     });
     canvas.addEventListener(
@@ -592,26 +596,36 @@ export class PlantScene {
     for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
     const hits = this.raycaster.intersectObjects(meshes, false);
     if (!hits.length) return null;
-    let obj: THREE.Object3D | null = hits[0].object;
-    let id: string | undefined;
-    while (obj) {
-      id = obj.userData.unitId as string | undefined;
-      if (id) break;
-      obj = obj.parent;
+
+    const resolveId = (start: THREE.Object3D | null): string | undefined => {
+      let obj: THREE.Object3D | null = start;
+      while (obj) {
+        const id = obj.userData.unitId as string | undefined;
+        if (id) return id;
+        obj = obj.parent;
+      }
+      return undefined;
+    };
+
+    // Process-train units always win over OSM surroundings (giant WWTP slabs etc.)
+    for (const hit of hits) {
+      const id = resolveId(hit.object);
+      if (id && !id.startsWith('osm_')) {
+        return this.units.find((u) => u.id === id) ?? null;
+      }
     }
-    return this.units.find((u) => u.id === id) ?? null;
+    for (const hit of hits) {
+      const id = resolveId(hit.object);
+      if (id) return this.units.find((u) => u.id === id) ?? null;
+    }
+    return null;
   }
 
   private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {
     if (!this.onHover) return;
     const unit = this.pickUnit(clientX, clientY, canvas);
-    const id = unit?.id ?? null;
-    if (id !== this.hoverUnitId) {
-      this.hoverUnitId = id;
-      this.onHover(unit, clientX, clientY);
-    } else if (unit) {
-      this.onHover(unit, clientX, clientY);
-    }
+    // HoverTip only rebuilds DOM when unit id changes
+    this.onHover(unit, clientX, clientY);
   }
 
   private setSelected(unit: UnitInfo | null): void {

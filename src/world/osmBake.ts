@@ -123,6 +123,108 @@ function roadWidth(highway: string | null | undefined): number {
   return 4.5;
 }
 
+
+/** Illustrative barn / fields / driveway when farm-septic has no nearby OSM. */
+function ensureNearSiteFarm(pack: PlantGeoPack): void {
+  if (pack.plantId !== 'farm-septic') return;
+  const hasNear = pack.geojson.features.some((f) => {
+    if (f.properties.synthetic) return true;
+    const g = f.geometry;
+    let cx = 0;
+    let cz = 0;
+    let n = 0;
+    if (g.type === 'Polygon') {
+      const ring = g.coordinates[0] as number[][];
+      for (let i = 0; i < ring.length - 1; i++) {
+        cx += ring[i][0];
+        cz += ring[i][1];
+        n++;
+      }
+    } else if (g.type === 'LineString') {
+      const coords = g.coordinates as number[][];
+      for (const p of coords) {
+        cx += p[0];
+        cz += p[1];
+        n++;
+      }
+    } else return false;
+    if (!n) return false;
+    cx /= n;
+    cz /= n;
+    const kind = f.properties.kind;
+    return (kind === 'building' || kind === 'farm' || kind === 'road') && Math.hypot(cx, cz) < 200;
+  });
+  if (hasNear) return;
+
+  const rect = (x: number, z: number, w: number, d: number): number[][] => [
+    [x - w / 2, z - d / 2],
+    [x + w / 2, z - d / 2],
+    [x + w / 2, z + d / 2],
+    [x - w / 2, z + d / 2],
+    [x - w / 2, z - d / 2],
+  ];
+  const synth: GeoFeature[] = [
+    {
+      type: 'Feature',
+      properties: { kind: 'farm', landuse: 'farmland', name: 'North field (illustrative)', synthetic: true },
+      geometry: { type: 'Polygon', coordinates: [rect(-85, -65, 75, 55)] },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'farm', landuse: 'farmland', name: 'East field (illustrative)', synthetic: true },
+      geometry: { type: 'Polygon', coordinates: [rect(80, -45, 65, 60)] },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'farm', landuse: 'meadow', name: 'South pasture (illustrative)', synthetic: true },
+      geometry: { type: 'Polygon', coordinates: [rect(-55, 80, 85, 50)] },
+    },
+    {
+      type: 'Feature',
+      properties: {
+        kind: 'farm',
+        landuse: 'farmyard',
+        name: 'Septic / leaching area (illustrative)',
+        synthetic: true,
+      },
+      geometry: { type: 'Polygon', coordinates: [rect(30, -8, 28, 22)] },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'building', building: 'barn', name: 'Barn (illustrative)', synthetic: true, levels: 1 },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[-46, 26], [-32, 26], [-32, 40], [-46, 40], [-46, 26]]],
+      },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'building', building: 'shed', name: 'Equipment shed (illustrative)', synthetic: true, levels: 1 },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[-52, 18], [-46, 18], [-46, 24], [-52, 24], [-52, 18]]],
+      },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'road', highway: 'track', name: 'Farm driveway (illustrative)', synthetic: true },
+      geometry: {
+        type: 'LineString',
+        coordinates: [[-110, 55], [-70, 40], [-40, 22], [-22, 10], [8, -2]],
+      },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'road', highway: 'service', name: 'Yard lane (illustrative)', synthetic: true },
+      geometry: {
+        type: 'LineString',
+        coordinates: [[-46, 33], [-22, 12], [-4, 0], [28, -6]],
+      },
+    },
+  ];
+  pack.geojson.features.push(...synth);
+}
+
 export function buildOsmSurroundings(
   pack: PlantGeoPack | null,
   textures: PlantTextures,
@@ -142,6 +244,9 @@ export function buildOsmSurroundings(
   if (!pack) {
     return { group, hoverables, wwtpCentroid, layoutYaw, osmThin: true, attribution };
   }
+
+  // Class 4 farmstead: if OSM has nothing near the pad, inject illustrative surroundings
+  ensureNearSiteFarm(pack);
 
   const dem = pack.dem;
   const maxB = opts?.maxBuildings ?? 180;
@@ -170,23 +275,37 @@ export function buildOsmSurroundings(
       layoutYaw = majorAxisYaw(ring);
       const shape = ringToShape(ring);
       if (shape && polygonArea(ring) > 80) {
-        const geo = new THREE.ExtrudeGeometry(shape, { depth: 1.2, bevelEnabled: false });
+        // Punch a hole over the playable process pad so giant OSM footprints
+        // do not hide / steal picks from the schematic train.
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const p of ring) {
+          minX = Math.min(minX, p[0]);
+          maxX = Math.max(maxX, p[0]);
+          minZ = Math.min(minZ, p[1]);
+          maxZ = Math.max(maxZ, p[1]);
+        }
+        const coversPad = minX < -25 && maxX > 25 && minZ < -20 && maxZ > 20;
+        if (coversPad) {
+          const hw = 62;
+          const hd = 52;
+          const hole = new THREE.Path();
+          hole.moveTo(-hw, -hd);
+          hole.lineTo(hw, -hd);
+          hole.lineTo(hw, hd);
+          hole.lineTo(-hw, hd);
+          hole.closePath();
+          shape.holes.push(hole);
+        }
+        // Flat footprint (no tall extrude) — context only, not a pick target
+        const geo = new THREE.ShapeGeometry(shape);
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, wwtpMat);
         const h = sampleDemHeight(dem, c.x, c.z, plantId);
-        mesh.position.y = h + 0.05;
+        mesh.position.y = h + 0.03;
         mesh.receiveShadow = true;
-        mesh.userData.osmHover = true;
-        mesh.userData.unitId = 'osm_wwtp';
-        mesh.userData.hoverLabel = f.properties.name || 'Wastewater plant (OSM)';
-        mesh.userData.hoverKind = 'wwtp';
+        mesh.raycast = () => {};
         group.add(mesh);
-        hoverables.push({
-          id: 'osm_wwtp',
-          label: f.properties.name || 'Wastewater plant (OSM)',
-          mesh,
-          kind: 'wwtp',
-        });
+        // Intentionally not hoverable — process units must win over OSM slabs
       }
       continue;
     }
@@ -201,8 +320,15 @@ export function buildOsmSurroundings(
       const levels = f.properties.levels && f.properties.levels > 0 ? f.properties.levels : 1;
       const depth = kind === 'farm' ? 0.15 : Math.min(14, 2.6 + levels * 2.4);
       const c = centroid(ring);
-      // Skip dense buildings on the process pad (keep playable train clear)
-      if (Math.abs(c.x) < 55 && Math.abs(c.z) < 45 && kind === 'building') continue;
+      // Skip dense buildings on the process pad (keep playable train clear).
+      // Synthetic farmstead props (barn/shed) are allowed near the Class 4 site.
+      if (
+        Math.abs(c.x) < 55 &&
+        Math.abs(c.z) < 45 &&
+        kind === 'building' &&
+        !f.properties.synthetic
+      )
+        continue;
 
       if (kind === 'farm') {
         const shape2 = ringToShape(ring);

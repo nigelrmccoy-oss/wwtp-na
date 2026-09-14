@@ -224,24 +224,32 @@ function syntheticFallback(plantId, isSeptic) {
     }
     features.push({
       type: 'Feature',
+      properties: { kind: 'farm', landuse: 'farmyard', name: 'Septic / leaching area (illustrative)', synthetic: true },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[16, -19], [44, -19], [44, 3], [16, 3], [16, -19]]],
+      },
+    });
+    features.push({
+      type: 'Feature',
       properties: { kind: 'building', building: 'barn', name: 'Barn (illustrative)', synthetic: true },
       geometry: {
         type: 'Polygon',
-        coordinates: [[[-28, 12], [-18, 12], [-18, 22], [-28, 22], [-28, 12]]],
+        coordinates: [[[-46, 26], [-32, 26], [-32, 40], [-46, 40], [-46, 26]]],
       },
     });
     features.push({
       type: 'Feature',
-      properties: { kind: 'building', building: 'house', name: 'Farmhouse (illustrative)', synthetic: true },
+      properties: { kind: 'building', building: 'shed', name: 'Equipment shed (illustrative)', synthetic: true },
       geometry: {
         type: 'Polygon',
-        coordinates: [[[-24, 4], [-16, 4], [-16, 10], [-24, 10], [-24, 4]]],
+        coordinates: [[[-52, 18], [-46, 18], [-46, 24], [-52, 24], [-52, 18]]],
       },
     });
     features.push({
       type: 'Feature',
-      properties: { kind: 'road', highway: 'track', name: 'Farm lane', synthetic: true },
-      geometry: { type: 'LineString', coordinates: [[-100, 0], [40, 0], [40, -40]] },
+      properties: { kind: 'road', highway: 'track', name: 'Farm driveway (illustrative)', synthetic: true },
+      geometry: { type: 'LineString', coordinates: [[-110, 55], [-70, 40], [-40, 22], [-22, 10], [8, -2]] },
     });
   } else {
     // Generic industrial-adjacent roads if OSM empty
@@ -277,10 +285,26 @@ async function bakeOne(plant) {
   }
 
   let osmThin = osmFeatures.features.length < 12;
-  if (osmThin) {
+  // Farm-septic often has distant village OSM but an empty pad — inject near-site farmstead
+  const nearSite = osmFeatures.features.some((f) => {
+    const g = f.geometry;
+    let cx = 0, cz = 0, n = 0;
+    if (g.type === 'Polygon') {
+      const ring = g.coordinates[0];
+      for (let i = 0; i < ring.length - 1; i++) { cx += ring[i][0]; cz += ring[i][1]; n++; }
+    } else if (g.type === 'LineString') {
+      for (const p of g.coordinates) { cx += p[0]; cz += p[1]; n++; }
+    } else return false;
+    if (!n) return false;
+    cx /= n; cz /= n;
+    const kind = f.properties.kind;
+    return (kind === 'building' || kind === 'farm' || kind === 'road') && Math.hypot(cx, cz) < 200;
+  });
+  if (osmThin || (isSeptic && !nearSite)) {
     const synth = syntheticFallback(plant.id, isSeptic);
     osmFeatures.features.push(...synth);
-    console.log('  + synthetic fallback', synth.length, 'features');
+    if (!nearSite && isSeptic) osmThin = true;
+    console.log('  + synthetic fallback', synth.length, 'features', isSeptic && !nearSite ? '(empty near-site)' : '');
   }
 
   const { pts, n, halfM } = sampleGrid(lat, lon, 1.2, 13);

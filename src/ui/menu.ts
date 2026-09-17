@@ -18,7 +18,7 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
 
   root.innerHTML = `
     <div class="panel menu-panel">
-      <h1>WWTP-NA <span class="ver">v0.2</span></h1>
+      <h1>WWTP-NA <span class="ver">v0.2.1</span></h1>
       <p class="sub">North American wastewater operator-training sim · Ontario corridor tribute</p>
       <p class="disclaimer">Training simulator — not affiliated with Region of Waterloo, City of Hamilton, City of Toronto, or OCWA. Capacities from public reports where cited; septic flows estimated from OBC/MOE guidance. Map data © OpenStreetMap contributors.</p>
       <label>Plant
@@ -41,8 +41,11 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
         <strong>Controls</strong>
         <ul>
           <li>WASD / arrows — move · mouse drag — look · wheel — zoom</li>
-          <li>C — toggle orbit / walk · hover unit — tooltip · click — select</li>
-          <li>SCADA Autopilot — keep NORMAL / meet ECA · Esc — menu</li>
+          <li>C — orbit ↔ walk · <strong>V</strong> — camera cycle (bird’s-eye → nadir → walk)</li>
+          <li>Hover unit — tooltip · click — select · <strong>Tab</strong> — cycle unit focus · <strong>F</strong> — focus selected</li>
+          <li><strong>O</strong> — layout overlay on/off · <strong>[</strong> / <strong>]</strong> — sim speed · <strong>A</strong> — ack alarms</li>
+          <li><strong>SCADA Autopilot</strong> — <em>ON</em> = auto keep NORMAL / meet ECA · <em>OFF</em> = full manual</li>
+          <li>Esc — menu · Tutorial — acronym glossary with bands</li>
         </ul>
       </div>
     </div>

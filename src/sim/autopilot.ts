@@ -14,7 +14,7 @@ export class Autopilot {
     const rate = Math.min(1, dt * 0.35); // smooth moves
 
     if (p.isSeptic) {
-      // Clear high float / keep tank mid
+      // Gravity Class 4: setpoint is bed-outlet openness (usually no pump). Clear high float / keep tank mid.
       let pump = sp.pumpSpeedPct;
       if (state.pumpAlarmFloat || state.tankLevelPct > 75) pump = Math.max(pump, 95);
       else if (state.tankLevelPct > 60) pump = Math.max(pump, 75);

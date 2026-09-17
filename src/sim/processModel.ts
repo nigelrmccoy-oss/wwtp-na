@@ -83,6 +83,8 @@ export class ProcessModel {
   private effluentTp: number;
   private noiseSeed = Math.random() * 1000;
   private pumpAlarm = false;
+  /** Alarm ids silenced until the condition clears (operator ACK). */
+  private silencedAlarms = new Set<string>();
 
   constructor(plant: PlantRuntime) {
     this.plant = plant;
@@ -106,7 +108,8 @@ export class ProcessModel {
       doTarget: plant.isSeptic ? 0 : plant.defaultDo,
       blowerPct: blowerForBalance,
       chemicalDosePct: plant.isSeptic ? 0 : 40,
-      pumpSpeedPct: plant.isSeptic ? 60 : 100,
+      // Septic: Class 4 is usually gravity — this setpoint is outlet openness to the bed (not a pump house).
+      pumpSpeedPct: plant.isSeptic ? 70 : 100,
       disinfectionOnline: !plant.isSeptic && plant.disinfectionType !== 'none',
     };
   }
@@ -117,6 +120,19 @@ export class ProcessModel {
 
   resetShift(): void {
     this.shiftStart = this.t;
+  }
+
+  /** Silence currently active alarms until each condition clears. */
+  acknowledgeAlarms(activeIds: string[]): void {
+    for (const id of activeIds) this.silencedAlarms.add(id);
+  }
+
+  private filterAlarms(alarms: Alarm[]): Alarm[] {
+    // Drop silence for conditions that cleared
+    for (const id of [...this.silencedAlarms]) {
+      if (!alarms.some((a) => a.id === id)) this.silencedAlarms.delete(id);
+    }
+    return alarms.filter((a) => !this.silencedAlarms.has(a.id));
   }
 
   step(dt: number): SimState {
@@ -181,8 +197,8 @@ export class ProcessModel {
       effluentBodMgL: this.effluentBod,
       influentTpMgL: this.influentTp,
       effluentTpMgL: this.effluentTp,
-      alarms,
-      statusLine: this.buildStatusLine(alarms, capacityUtilPct, shiftElapsed),
+      alarms: this.filterAlarms(alarms),
+      statusLine: this.buildStatusLine(this.filterAlarms(alarms), capacityUtilPct, shiftElapsed),
       profile: 'septic',
     };
   }
@@ -348,8 +364,8 @@ export class ProcessModel {
       effluentBodMgL: this.effluentBod,
       influentTpMgL: this.influentTp,
       effluentTpMgL: this.effluentTp,
-      alarms,
-      statusLine: this.buildStatusLine(alarms, capacityUtilPct, shiftElapsed),
+      alarms: this.filterAlarms(alarms),
+      statusLine: this.buildStatusLine(this.filterAlarms(alarms), capacityUtilPct, shiftElapsed),
       profile: 'municipal',
     };
   }

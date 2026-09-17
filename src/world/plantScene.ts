@@ -1,5 +1,5 @@
 /**
- * Three.js plant site scene — v0.2: textured units, OSM/DEM surroundings, hover.
+ * Three.js plant site scene — v0.2.1: camera cycle, septic realism, walled clarifiers.
  */
 import * as THREE from 'three';
 import type { PlantConfig } from '../sim/processModel';
@@ -26,6 +26,7 @@ export interface PlantSceneOpts {
   textures: PlantTextures;
   geo: PlantGeoPack | null;
   onHover?: UnitHoverCb;
+  onCamCycleChange?: (label: string) => void;
 }
 
 export class PlantScene {
@@ -44,7 +45,11 @@ export class PlantScene {
   private orbitTarget = new THREE.Vector3(0, 0, 0);
   private orbitDist = 55;
   private mode: 'orbit' | 'walk' = 'orbit';
+  /** V-key cycle: bird's-eye → nadir → walk-through */
+  private camCycle: 0 | 1 | 2 = 0;
   private walkPos = new THREE.Vector3(40, 2.2, 55);
+  private focusIndex = -1;
+  private onCamCycleChange: ((label: string) => void) | null = null;
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
   private selected: UnitInfo | null = null;
@@ -85,6 +90,7 @@ export class PlantScene {
     this.onSelect = onSelect;
     this.onModeChange = onModeChange ?? null;
     this.onHover = opts?.onHover ?? null;
+    this.onCamCycleChange = (opts as PlantSceneOpts | undefined)?.onCamCycleChange ?? null;
     this.textures = opts!.textures;
 
     this.mats = {
@@ -159,6 +165,78 @@ export class PlantScene {
 
   getMode(): 'orbit' | 'walk' {
     return this.mode;
+  }
+
+  getCamCycleLabel(): string {
+    return this.camCycle === 0 ? 'BIRD' : this.camCycle === 1 ? 'NADIR' : 'WALK';
+  }
+
+  /** Project process-train unit centres to canvas CSS pixels for the layout overlay. */
+  getOverlayAnchors(canvas: HTMLCanvasElement): { id: string; label: string; x: number; y: number }[] {
+    const rect = canvas.getBoundingClientRect();
+    const out: { id: string; label: string; x: number; y: number }[] = [];
+    const v = new THREE.Vector3();
+    for (const u of this.units) {
+      if (u.id.startsWith('osm_') && u.id !== 'osm_wwtp') continue;
+      const box = new THREE.Box3().setFromObject(u.mesh);
+      box.getCenter(v);
+      v.y = box.max.y + 1.5;
+      v.project(this.camera);
+      const x = (v.x * 0.5 + 0.5) * rect.width;
+      const y = (-v.y * 0.5 + 0.5) * rect.height;
+      if (v.z < 1 && x > -40 && y > -40 && x < rect.width + 40 && y < rect.height + 40) {
+        out.push({ id: u.id, label: u.label, x, y });
+      }
+    }
+    return out;
+  }
+
+  /** Focus orbit/walk on a unit (F key / Tab cycle). */
+  focusUnit(unit: UnitInfo | null): void {
+    if (!unit) return;
+    this.setSelected(unit);
+    const box = new THREE.Box3().setFromObject(unit.mesh);
+    const c = box.getCenter(new THREE.Vector3());
+    this.orbitTarget.copy(c);
+    this.orbitTarget.y = 0;
+    this.walkPos.set(c.x + 12, 2.2, c.z + 16);
+    if (this.mode === 'orbit' && this.camCycle !== 1) {
+      this.orbitDist = clamp(Math.max(box.getSize(new THREE.Vector3()).length() * 1.8, 28), 22, 120);
+      this.pitch = -0.55;
+    }
+  }
+
+  cycleUnitFocus(): UnitInfo | null {
+    const playable = this.units.filter((u) => !u.id.startsWith('osm_'));
+    if (!playable.length) return null;
+    this.focusIndex = (this.focusIndex + 1) % playable.length;
+    const u = playable[this.focusIndex];
+    this.focusUnit(u);
+    return u;
+  }
+
+  cycleCameraView(): string {
+    this.camCycle = ((this.camCycle + 1) % 3) as 0 | 1 | 2;
+    const s = this.plant.layoutScale;
+    if (this.camCycle === 0) {
+      // Bird's-eye
+      this.mode = 'orbit';
+      this.pitch = -0.92;
+      this.orbitDist = 55 + 36 * s;
+      this.yaw = 0.55;
+    } else if (this.camCycle === 1) {
+      // Nadir — straight down
+      this.mode = 'orbit';
+      this.pitch = -1.52;
+      this.orbitDist = 48 + 30 * s;
+    } else {
+      this.mode = 'walk';
+      this.pitch = -0.12;
+    }
+    this.onModeChange?.(this.mode);
+    const label = this.getCamCycleLabel();
+    this.onCamCycleChange?.(label);
+    return label;
   }
 
   private onResize = (): void => {
@@ -247,10 +325,12 @@ export class PlantScene {
     const units: { id: string; label: string; kind: string; x: number; z: number; count: number }[] =
       this.plant.isSeptic
         ? [
-            { id: 'house', label: 'Farmhouse', kind: 'rect', x: -22, z: 8, count: 1 },
-            { id: 'septic_tank', label: 'Septic Tank', kind: 'basin', x: -4, z: -2, count: 1 },
-            { id: 'pump', label: 'Effluent Pump', kind: 'rect', x: 10, z: -2, count: 1 },
-            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'basin', x: 28, z: -6, count: 1 },
+            // Class 4 realism: tank OUTSIDE (not under a roof), leaching bed way out in the yard,
+            // usually NO pump house — gravity to distribution box / bed.
+            { id: 'house', label: 'Farmhouse', kind: 'rect', x: -28, z: 10, count: 1 },
+            { id: 'septic_tank', label: 'Septic Tank', kind: 'septic_tank', x: -12, z: 4, count: 1 },
+            { id: 'distribution', label: 'Distribution Box', kind: 'dbox', x: 8, z: 2, count: 1 },
+            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'leach', x: 48, z: 28, count: 1 },
           ]
         : [
             { id: 'headworks', label: 'Headworks', kind: 'rect', x: -38, z: -8, count: 1 },
@@ -328,22 +408,108 @@ export class PlantScene {
           const row = Math.floor(i / perRow);
           const col = i % perRow;
           const r = (u.id === 'digesters' ? 4.2 : 3.6) * Math.min(1.15, s);
-          const h = u.id === 'digesters' ? 5.5 : 2.4;
-          const mesh = new THREE.Mesh(
-            new THREE.CylinderGeometry(r, r * (u.id === 'digesters' ? 0.85 : 1), h, 24),
-            u.id === 'digesters' ? this.mats.digester : this.mats.concrete,
-          );
-          mesh.position.set((col - (perRow - 1) / 2) * spacing, h / 2, row * spacing * 0.85);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          mesh.userData.unitId = u.id;
-          group.add(mesh);
-          if (u.id !== 'digesters') {
-            const water = new THREE.Mesh(new THREE.CircleGeometry(r * 0.92, 24), this.mats.water);
-            water.rotation.x = -Math.PI / 2;
-            water.position.set(mesh.position.x, h - 0.25, mesh.position.z);
+          const h = u.id === 'digesters' ? 5.5 : 2.6;
+          const px = (col - (perRow - 1) / 2) * spacing;
+          const pz = row * spacing * 0.85;
+          if (u.id === 'digesters') {
+            const mesh = new THREE.Mesh(
+              new THREE.CylinderGeometry(r, r * 0.85, h, 24),
+              this.mats.digester,
+            );
+            mesh.position.set(px, h / 2, pz);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData.unitId = u.id;
+            group.add(mesh);
+          } else {
+            // Walled clarifier: open-ended cylinder wall + floor + water inside (not a flat disc).
+            const wallMat = this.mats.concrete.clone();
+            wallMat.side = THREE.DoubleSide;
+            const wall = new THREE.Mesh(
+              new THREE.CylinderGeometry(r, r, h, 28, 1, true),
+              wallMat,
+            );
+            wall.position.set(px, h / 2, pz);
+            wall.castShadow = true;
+            wall.receiveShadow = true;
+            wall.userData.unitId = u.id;
+            group.add(wall);
+            const floor = new THREE.Mesh(new THREE.CircleGeometry(r * 0.98, 28), this.mats.concreteAlt);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(px, 0.08, pz);
+            floor.receiveShadow = true;
+            floor.userData.unitId = u.id;
+            group.add(floor);
+            const waterH = h * 0.72;
+            const water = new THREE.Mesh(
+              new THREE.CylinderGeometry(r * 0.9, r * 0.9, waterH, 28),
+              this.mats.water,
+            );
+            water.position.set(px, waterH / 2 + 0.1, pz);
+            water.userData.unitId = u.id;
             group.add(water);
+            // Thin rim cap so the wall reads as a tank from bird's-eye
+            const rim = new THREE.Mesh(
+              new THREE.RingGeometry(r * 0.92, r * 1.02, 28),
+              this.mats.concrete,
+            );
+            rim.rotation.x = -Math.PI / 2;
+            rim.position.set(px, h - 0.05, pz);
+            rim.userData.unitId = u.id;
+            group.add(rim);
           }
+        }
+      } else if (u.kind === 'septic_tank') {
+        // Outdoor buried Class 4 tank — lids at grade, NOT under a building roof
+        const tank = new THREE.Mesh(new THREE.BoxGeometry(7.5, 2.2, 3.4), this.mats.concrete);
+        tank.position.set(0, 0.55, 0); // mostly below / at grade
+        tank.castShadow = true;
+        tank.receiveShadow = true;
+        tank.userData.unitId = u.id;
+        group.add(tank);
+        for (const lx of [-1.8, 1.8]) {
+          const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.18, 16), this.mats.concreteAlt);
+          lid.position.set(lx, 1.75, 0);
+          lid.userData.unitId = u.id;
+          group.add(lid);
+        }
+        const riser = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.35, 1.2), this.mats.concreteAlt);
+        riser.position.set(0, 1.85, 0);
+        riser.userData.unitId = u.id;
+        group.add(riser);
+      } else if (u.kind === 'dbox') {
+        // Small outdoor distribution box (gravity systems — no pump house)
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), this.mats.concrete);
+        box.position.y = 0.35;
+        box.castShadow = true;
+        box.userData.unitId = u.id;
+        group.add(box);
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 2.0), this.mats.concreteAlt);
+        lid.position.y = 0.86;
+        lid.userData.unitId = u.id;
+        group.add(lid);
+      } else if (u.kind === 'leach') {
+        // Leaching bed out in the open yard — trench field, not under a roof / not a deep basin
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(22, 0.18, 16), this.mats.walk);
+        pad.position.y = 0.12;
+        pad.receiveShadow = true;
+        pad.userData.unitId = u.id;
+        group.add(pad);
+        for (let t = 0; t < 6; t++) {
+          const trench = new THREE.Mesh(
+            new THREE.BoxGeometry(18, 0.22, 0.85),
+            this.mats.asphalt,
+          );
+          trench.position.set(0, 0.28, -6 + t * 2.4);
+          trench.userData.unitId = u.id;
+          group.add(trench);
+          const gravel = new THREE.Mesh(
+            new THREE.BoxGeometry(18, 0.08, 0.55),
+            this.mats.concreteAlt,
+          );
+          gravel.position.set(0, 0.4, -6 + t * 2.4);
+          gravel.userData.unitId = u.id;
+          group.add(gravel);
         }
       } else if (u.kind === 'ditch') {
         const ditch = new THREE.Mesh(
@@ -462,7 +628,9 @@ export class PlantScene {
       }
 
       const label = this.makeLabel(u.label);
-      label.position.set(0, u.kind === 'ditch' ? 9.5 : 8.2, 0);
+      const labelY =
+        u.kind === 'ditch' ? 9.5 : u.kind === 'leach' ? 4.5 : u.kind === 'septic_tank' || u.kind === 'dbox' ? 3.8 : 8.2;
+      label.position.set(0, labelY, 0);
       group.add(label);
 
       this.processRoot.add(group);
@@ -476,8 +644,15 @@ export class PlantScene {
     }
 
     this.orbitDist = 42 + 28 * s;
-    this.orbitTarget.set(8 * s, 0, -4 * s);
-    this.walkPos.set(28 * s, 2.2, 38 * s);
+    if (this.plant.isSeptic) {
+      this.orbitTarget.set(12 * s, 0, 12 * s);
+      this.walkPos.set(-8 * s, 2.2, 22 * s);
+      this.orbitDist = 50 + 20 * s;
+      this.pitch = -0.72;
+    } else {
+      this.orbitTarget.set(8 * s, 0, -4 * s);
+      this.walkPos.set(28 * s, 2.2, 38 * s);
+    }
   }
 
   private makeLabel(text: string): THREE.Sprite {
@@ -517,7 +692,14 @@ export class PlantScene {
       this.keys.add(e.code);
       if (e.code === 'KeyC') {
         this.mode = this.mode === 'orbit' ? 'walk' : 'orbit';
+        // C is free orbit/walk — leave camCycle marker on walk or birds
+        if (this.mode === 'walk') this.camCycle = 2;
+        else if (this.camCycle === 2) this.camCycle = 0;
         this.onModeChange?.(this.mode);
+        this.onCamCycleChange?.(this.getCamCycleLabel());
+      }
+      if (e.code === 'KeyV') {
+        this.cycleCameraView();
       }
     };
     this.onKeyUp = (e: KeyboardEvent) => {
@@ -562,7 +744,8 @@ export class PlantScene {
       }
       this.yaw -= dx * 0.005;
       this.pitch -= dy * 0.004;
-      this.pitch = Math.max(-1.2, Math.min(0.2, this.pitch));
+      const pitchMin = this.camCycle === 1 ? -1.55 : -1.25;
+      this.pitch = Math.max(pitchMin, Math.min(0.25, this.pitch));
     });
     canvas.addEventListener('pointerleave', (e) => {
       // Keep tip alive when pointer moves onto the hover card (Open controls)
@@ -670,14 +853,26 @@ export class PlantScene {
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) this.orbitTarget.addScaledVector(right, -speed);
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) this.orbitTarget.addScaledVector(right, speed);
 
-      const cp = Math.cos(this.pitch);
-      const sp = Math.sin(this.pitch);
-      this.camera.position.set(
-        this.orbitTarget.x - Math.sin(this.yaw) * cp * this.orbitDist,
-        this.orbitTarget.y + Math.max(8, -sp * this.orbitDist + 18),
-        this.orbitTarget.z - Math.cos(this.yaw) * cp * this.orbitDist,
-      );
-      this.camera.lookAt(this.orbitTarget);
+      if (this.camCycle === 1) {
+        // Hard nadir: camera straight above target
+        this.camera.position.set(
+          this.orbitTarget.x,
+          this.orbitTarget.y + this.orbitDist,
+          this.orbitTarget.z,
+        );
+        this.camera.up.set(0, 0, -1);
+        this.camera.lookAt(this.orbitTarget);
+        this.camera.up.set(0, 1, 0);
+      } else {
+        const cp = Math.cos(this.pitch);
+        const sp = Math.sin(this.pitch);
+        this.camera.position.set(
+          this.orbitTarget.x - Math.sin(this.yaw) * cp * this.orbitDist,
+          this.orbitTarget.y + Math.max(8, -sp * this.orbitDist + 18),
+          this.orbitTarget.z - Math.cos(this.yaw) * cp * this.orbitDist,
+        );
+        this.camera.lookAt(this.orbitTarget);
+      }
     }
 
     for (const u of this.units) {

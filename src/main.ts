@@ -10,6 +10,7 @@ import { Autopilot } from './sim/autopilot';
 import { HoverTip } from './ui/hoverTip';
 import { maybeShowFirstRunTutorial } from './ui/tutorial';
 import { LayoutOverlay } from './ui/layoutOverlay';
+import { getCesiumScaffoldStatus, mountCesiumScaffold } from './world/cesiumLayer';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const menuHost = document.getElementById('menu')!;
@@ -151,6 +152,30 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   apHud.textContent = 'AUTOPILOT ON · NORMAL/ECA';
   apHud.classList.add('hidden');
 
+  // GIS snap HUD
+  let gisHud = document.getElementById('gisHudBadge');
+  if (!gisHud) {
+    gisHud = document.createElement('div');
+    gisHud.id = 'gisHudBadge';
+    gisHud.className = 'gis-hud-badge';
+    document.getElementById('app')!.appendChild(gisHud);
+  }
+  gisHud.textContent = scene.gisUsed ? 'GIS: footprint snap' : 'GIS: schematic';
+  gisHud.dataset.mode = scene.gisUsed ? 'snap' : 'schematic';
+  gisHud.title = scene.gisSummary || gisHud.textContent;
+  gisHud.classList.remove('hidden');
+
+  // Cesium scaffold (feature-flagged; Ion token from .env.local — never committed)
+  document.getElementById('cesiumScaffoldBadge')?.remove();
+  const cesiumHost = document.getElementById('app');
+  const unmountCesium = mountCesiumScaffold(cesiumHost, {
+    lat: plant.approxLat,
+    lon: plant.approxLon,
+  });
+  (window as unknown as { __wwtpUnmountCesium?: () => void }).__wwtpUnmountCesium = unmountCesium;
+  const cesiumStatus = getCesiumScaffoldStatus();
+  void cesiumStatus;
+
   let ovHud = document.getElementById('overlayHudBadge');
   if (!ovHud) {
     ovHud = document.createElement('div');
@@ -219,6 +244,10 @@ function teardownRun(): void {
   document.getElementById('apHudBadge')?.classList.add('hidden');
   document.getElementById('overlayHudBadge')?.classList.add('hidden');
   document.getElementById('camCycleBadge')?.classList.add('hidden');
+  document.getElementById('gisHudBadge')?.classList.add('hidden');
+  document.getElementById('cesiumScaffoldBadge')?.remove();
+  const u = (window as unknown as { __wwtpUnmountCesium?: () => void }).__wwtpUnmountCesium;
+  u?.();
 }
 
 function showMenu(): void {
@@ -277,6 +306,15 @@ window.addEventListener('keydown', (e) => {
       scada?.setSelectedUnit(u.label);
       audio.uiClick();
     }
+  }
+  if (e.code === 'KeyZ') {
+    const on = scada?.toggleAutopilot() ?? false;
+    const badge = document.getElementById('apHudBadge');
+    if (badge) {
+      badge.classList.toggle('hidden', !on);
+      badge.textContent = on ? 'AUTOPILOT ON · NORMAL/ECA' : 'AUTOPILOT';
+    }
+    audio.uiClick();
   }
 });
 

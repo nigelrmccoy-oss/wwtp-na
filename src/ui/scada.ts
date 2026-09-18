@@ -379,6 +379,27 @@ export class ScadaOverlay {
     const ov = this.el.querySelector('#spOverlay') as HTMLInputElement | null;
     if (ov) ov.checked = on;
   }
+
+  /** Toggle SCADA Autopilot (Z key). Returns new enabled state. */
+  toggleAutopilot(): boolean {
+    if (!this.autopilot) return false;
+    const next = !this.autopilot.enabled;
+    this.setAutopilotChecked(next);
+    return next;
+  }
+
+  /** Keep Autopilot checkbox + badge in sync with keyboard / external toggles. */
+  setAutopilotChecked(on: boolean): void {
+    if (this.autopilot) this.autopilot.enabled = on;
+    const ap = this.el.querySelector('#spAutopilot') as HTMLInputElement | null;
+    if (ap) ap.checked = on;
+    const badge = this.el.querySelector('#autopilotBadge') as HTMLElement | null;
+    if (badge) {
+      badge.classList.toggle('on', on);
+      badge.textContent = on ? 'AP ON · NORMAL/ECA' : 'MANUAL';
+    }
+    this.onAutopilotChange?.(on);
+  }
 }
 
 function formatSimClock(tSec: number): string {

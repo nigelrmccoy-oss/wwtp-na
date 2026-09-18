@@ -59,17 +59,17 @@ export const UNIT_EXPLAINERS: Record<string, UnitExplainer> = {
   },
   septic_tank: {
     name: 'Septic tank',
-    blurb: 'Settles solids and provides anaerobic pretreatment before the leaching bed. Watch tank level and float alarm.',
+    blurb: 'Outdoor Class 4 tank (not under a roof) — settles solids and anaerobic pretreatment before the leaching bed. Watch tank level and float alarm.',
     scadaControls: ['spPump'],
   },
-  pump: {
-    name: 'Effluent pump',
-    blurb: 'Moves clarified effluent to the leaching bed when gravity isn’t enough — raise speed to clear a high float.',
+  distribution: {
+    name: 'Distribution box',
+    blurb: 'Splits gravity (or optional pumped) effluent into leaching-bed laterals. Most Class 4 systems have no pump house — outlet openness in SCADA is the bed feed.',
     scadaControls: ['spPump'],
   },
   leaching_bed: {
     name: 'Leaching bed',
-    blurb: 'Soil absorption trenches / filter bed — final treatment to groundwater. No surface outfall on Class 4.',
+    blurb: 'Absorption trenches out in the open yard (not under a building) — final soil treatment to groundwater. No surface outfall on Class 4.',
     scadaControls: ['spPump'],
   },
   osm_wwtp: {

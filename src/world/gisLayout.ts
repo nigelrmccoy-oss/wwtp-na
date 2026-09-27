@@ -12,8 +12,12 @@ export interface FootprintRing {
   cx: number;
   cz: number;
   area: number;
+  /** Axis-aligned bbox (legacy; prefer obb* / ring for meshing). */
   width: number;
   depth: number;
+  /** Oriented bbox along yaw — closer to true footprint than AABB for rotated basins. */
+  obbWidth: number;
+  obbDepth: number;
   circularity: number;
   yaw: number;
   kind: 'clarifier' | 'basin' | 'other';
@@ -106,6 +110,28 @@ function majorAxisYaw(ring: number[][]): number {
   return 0.5 * Math.atan2(2 * xz, xx - zz);
 }
 
+/** Project ring onto yaw axes → oriented width (along yaw) / depth (perp). */
+function orientedExtents(ring: number[][], yaw: number, cx: number, cz: number): { w: number; d: number } {
+  const cos = Math.cos(-yaw);
+  const sin = Math.sin(-yaw);
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  const n = Math.max(1, ring.length - 1);
+  for (let i = 0; i < n; i++) {
+    const dx = ring[i][0] - cx;
+    const dz = ring[i][1] - cz;
+    const u = dx * cos - dz * sin;
+    const v = dx * sin + dz * cos;
+    minU = Math.min(minU, u);
+    maxU = Math.max(maxU, u);
+    minV = Math.min(minV, v);
+    maxV = Math.max(maxV, v);
+  }
+  return { w: Math.max(1, maxU - minU), d: Math.max(1, maxV - minV) };
+}
+
 export function classifyFootprint(ring: number[][]): FootprintRing | null {
   if (ring.length < 3) return null;
   const area = polygonArea(ring);
@@ -126,6 +152,8 @@ export function classifyFootprint(ring: number[][]): FootprintRing | null {
   } else if (circ >= 0.7 && area >= 200) {
     kind = 'clarifier';
   }
+  const yaw = majorAxisYaw(ring);
+  const obb = orientedExtents(ring, yaw, c.x, c.z);
   return {
     ring,
     cx: c.x,
@@ -133,8 +161,10 @@ export function classifyFootprint(ring: number[][]): FootprintRing | null {
     area,
     width,
     depth,
+    obbWidth: obb.w,
+    obbDepth: obb.d,
     circularity: circ,
-    yaw: majorAxisYaw(ring),
+    yaw,
     kind,
   };
 }
@@ -172,6 +202,99 @@ function connectChain(points: { x: number; z: number }[]): GisLayoutResult['pipi
   const out: GisLayoutResult['pipingHints'] = [];
   for (let i = 0; i < points.length - 1; i++) {
     out.push({ x0: points[i].x, z0: points[i].z, x1: points[i + 1].x, z1: points[i + 1].z });
+  }
+  return out;
+}
+
+/** Known-bad OSM water polys that flood / mis-snap process units (centroid ≈). */
+const WATER_DENYLIST: Record<string, { cx: number; cz: number; tol?: number }[]> = {
+  // Kitchener: NE pond/oxbow mis-typed as a giant clarifier (~3701 m², circ~0.85)
+  kitchener: [{ cx: 323.5, cz: 165.1, tol: 12 }],
+};
+
+function isDenied(plantId: string, cx: number, cz: number): boolean {
+  const list = WATER_DENYLIST[plantId];
+  if (!list) return false;
+  return list.some((d) => Math.hypot(cx - d.cx, cz - d.cz) <= (d.tol ?? 15));
+}
+
+/** Split one elongated basin footprint into N equal slices along its major axis. */
+function splitBasinAlongMajor(fp: FootprintRing, n: number): FootprintRing[] {
+  if (n <= 1) return [fp];
+  const out: FootprintRing[] = [];
+  const cos = Math.cos(fp.yaw);
+  const sin = Math.sin(fp.yaw);
+  const sliceW = fp.obbWidth / n;
+  for (let i = 0; i < n; i++) {
+    const u = -fp.obbWidth / 2 + sliceW * (i + 0.5);
+    const cx = fp.cx + cos * u;
+    const cz = fp.cz + sin * u;
+    const hw = sliceW * 0.48;
+    const hd = fp.obbDepth * 0.48;
+    const local = [
+      [-hw, -hd],
+      [hw, -hd],
+      [hw, hd],
+      [-hw, hd],
+      [-hw, -hd],
+    ];
+    const ring = local.map(([u0, v0]) => [
+      cx + cos * u0 - Math.sin(fp.yaw) * v0,
+      cz + sin * u0 + cos * v0,
+    ]);
+    out.push({
+      ring,
+      cx,
+      cz,
+      area: sliceW * fp.obbDepth * 0.92,
+      width: sliceW,
+      depth: fp.obbDepth,
+      obbWidth: sliceW * 0.96,
+      obbDepth: fp.obbDepth * 0.96,
+      circularity: 0.4,
+      yaw: fp.yaw,
+      kind: 'basin',
+    });
+  }
+  return out;
+}
+
+/** Hand rectangular primary clarifiers for Kitchener (OSM only has circular tanks). */
+function kitchenerRectPrimaries(pad: { cx: number; cz: number }, aerationHint: FootprintRing | null): FootprintRing[] {
+  // West of aeration cluster — four 45×18 m rectangles (illustrative of Phase 3 primaries)
+  const baseX = aerationHint ? aerationHint.cx - Math.max(90, aerationHint.obbWidth * 0.55) : pad.cx - 160;
+  const baseZ = aerationHint ? aerationHint.cz : pad.cz - 20;
+  const yaw = aerationHint?.yaw ?? 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const out: FootprintRing[] = [];
+  for (let i = 0; i < 4; i++) {
+    const along = (i - 1.5) * 22;
+    const cx = baseX + -sin * along;
+    const cz = baseZ + cos * along;
+    const hw = 22.5;
+    const hd = 9;
+    const local = [
+      [-hw, -hd],
+      [hw, -hd],
+      [hw, hd],
+      [-hw, hd],
+      [-hw, -hd],
+    ];
+    const ring = local.map(([u0, v0]) => [cx + cos * u0 - sin * v0, cz + sin * u0 + cos * v0]);
+    out.push({
+      ring,
+      cx,
+      cz,
+      area: 45 * 18,
+      width: 45,
+      depth: 18,
+      obbWidth: 45,
+      obbDepth: 18,
+      circularity: 0.35,
+      yaw,
+      kind: 'basin',
+    });
   }
   return out;
 }
@@ -218,6 +341,7 @@ export function buildGisLayout(
       const ring = f.geometry.coordinates[0] as number[][];
       const fp = classifyFootprint(ring);
       if (!fp) continue;
+      if (isDenied(plantId, fp.cx, fp.cz)) continue;
       // Carve masks: natural waterways / ponds only. Process clarifiers & basins
       // already have mesh floors — carving them leaves floating water sheets.
       if (fp.kind === 'other') waterMasks.push(fp);
@@ -259,10 +383,16 @@ export function buildGisLayout(
 
   const snaps: GisUnitSnap[] = [];
 
-  // Split clarifiers into primary (smaller) vs secondary (larger) when both exist
+  // Split clarifiers into primary (smaller) vs secondary (larger) when both exist.
+  // Kitchener: research primaries are rectangular — do not promote circular OSM tanks.
   let primaryFs: FootprintRing[] = [];
   let secondaryFs: FootprintRing[] = [];
-  if (counts.hasPrimary && clarifiers.length >= 2) {
+  const kitRectPrimary = plantId === 'kitchener' && counts.hasPrimary;
+  if (kitRectPrimary) {
+    secondaryFs = [...clarifiers]
+      .sort((a, b) => b.area - a.area)
+      .slice(0, counts.secondary || clarifiers.length);
+  } else if (counts.hasPrimary && clarifiers.length >= 2) {
     const mid = Math.ceil(clarifiers.length / 2);
     // Prefer smaller half as primary when size contrast is clear
     const sorted = [...clarifiers].sort((a, b) => a.area - b.area);
@@ -293,22 +423,44 @@ export function buildGisLayout(
     secondaryFs = clarifiers.slice(0, counts.secondary || clarifiers.length);
   }
 
+  // Aeration first so Kitchener hand-primaries can sit west of real basins
+  let aerationFs = basins.slice(0, Math.max(1, counts.aeration || basins.length));
+  // Waterloo (and similar): OSM often merges twin aeration tanks into one water poly
+  if (
+    !counts.hasOxidationDitch &&
+    counts.aeration > aerationFs.length &&
+    aerationFs.length >= 1
+  ) {
+    const need = counts.aeration;
+    const biggest = [...aerationFs].sort((a, b) => b.area - a.area)[0];
+    const rest = aerationFs.filter((f) => f !== biggest);
+    aerationFs = [...rest, ...splitBasinAlongMajor(biggest, need - rest.length)];
+  }
+
+  if (kitRectPrimary) {
+    const padCx = (bounds.minX + bounds.maxX) / 2;
+    const padCz = (bounds.minZ + bounds.maxZ) / 2;
+    primaryFs = kitchenerRectPrimaries({ cx: padCx, cz: padCz }, aerationFs[0] ?? basins[0] ?? null);
+  }
+
   if (primaryFs.length && counts.hasPrimary) {
     const c = centroidOf(primaryFs);
+    const rectPrimary = primaryFs.every((f) => f.circularity < 0.7);
     snaps.push({
       id: 'primary',
       label: 'Primary Clarifiers',
-      kind: 'cyl',
+      kind: rectPrimary ? 'basin' : 'cyl',
       x: c.x,
       z: c.z,
       yaw: meanYaw(primaryFs),
       count: primaryFs.length,
-      radiusM: avgRadius(primaryFs),
+      radiusM: rectPrimary ? undefined : avgRadius(primaryFs),
+      widthM: rectPrimary ? Math.max(...primaryFs.map((f) => f.obbWidth)) : undefined,
+      depthM: rectPrimary ? Math.max(...primaryFs.map((f) => f.obbDepth)) : undefined,
       footprints: primaryFs,
     });
   }
 
-  const aerationFs = basins.slice(0, Math.max(1, counts.aeration || basins.length));
   if (aerationFs.length && !counts.hasOxidationDitch) {
     const c = centroidOf(aerationFs);
     snaps.push({
@@ -319,8 +471,8 @@ export function buildGisLayout(
       z: c.z,
       yaw: meanYaw(aerationFs),
       count: aerationFs.length,
-      widthM: Math.max(...aerationFs.map((f) => f.width)),
-      depthM: Math.max(...aerationFs.map((f) => f.depth)),
+      widthM: Math.max(...aerationFs.map((f) => f.obbWidth)),
+      depthM: Math.max(...aerationFs.map((f) => f.obbDepth)),
       footprints: aerationFs,
     });
   } else if (counts.hasOxidationDitch && basins[0]) {
@@ -353,35 +505,49 @@ export function buildGisLayout(
     });
   }
 
-  // Headworks: upstream of first process unit (typically west / lower X for these plants)
+  // Pad from WWTP footprint — uncap so Kitchener (~746×485) and peers keep real yard size
+  const padW = bounds.maxX - bounds.minX;
+  const padD = bounds.maxZ - bounds.minZ;
+  const pad = {
+    cx: (bounds.minX + bounds.maxX) / 2,
+    cz: (bounds.minZ + bounds.maxZ) / 2,
+    w: Math.max(80, padW * 0.98),
+    d: Math.max(60, padD * 0.98),
+    yaw: 0,
+  };
+
+  // Headworks / UV / solids: park on pad margins (no hardcoded ±45/55 when GIS used)
   const processPts = snaps.map((s) => ({ x: s.x, z: s.z }));
   if (processPts.length) {
     const xs = processPts.map((p) => p.x);
     const zs = processPts.map((p) => p.z);
     const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
     const midZ = zs.reduce((a, b) => a + b, 0) / zs.length;
+    const marginX = Math.min(28, pad.w * 0.04);
+    const marginZ = Math.min(28, pad.d * 0.04);
+    const headX = Math.max(pad.cx - pad.w * 0.5 + 14, minX - marginX - 18);
     snaps.unshift({
       id: 'headworks',
       label: 'Headworks',
       kind: 'rect',
-      x: minX - 45,
+      x: headX,
       z: midZ,
       yaw: 0,
       count: 1,
       footprints: [],
     });
 
-    // Disinfection downstream of secondary
-    const maxX = Math.max(...xs);
     const sec = snaps.find((s) => s.id === 'secondary');
     const dx = sec ? sec.x : maxX;
     const dz = sec ? sec.z : midZ;
+    const disX = Math.min(pad.cx + pad.w * 0.5 - 14, dx + marginX + 22);
     if (counts.disinfection === 'uv' && counts.uvBanks > 0) {
       snaps.push({
         id: 'disinfection',
         label: 'UV Disinfection',
         kind: 'uv',
-        x: dx + 55,
+        x: disX,
         z: dz,
         yaw: 0,
         count: counts.uvBanks,
@@ -392,7 +558,7 @@ export function buildGisLayout(
         id: 'disinfection',
         label: 'Chlorine Contact',
         kind: 'chlorine',
-        x: dx + 55,
+        x: disX,
         z: dz,
         yaw: 0,
         count: counts.chlorineChannels,
@@ -400,28 +566,18 @@ export function buildGisLayout(
       });
     }
 
+    const solidsZ = Math.min(pad.cz + pad.d * 0.5 - 14, Math.max(...zs) + marginZ + 18);
     snaps.push({
       id: 'solids',
       label: 'Solids Handling',
       kind: 'rect',
       x: (minX + maxX) / 2,
-      z: Math.max(...zs) + 55,
+      z: solidsZ,
       yaw: 0,
       count: 1,
       footprints: [],
     });
   }
-
-  // Pad from WWTP footprint
-  const padW = bounds.maxX - bounds.minX;
-  const padD = bounds.maxZ - bounds.minZ;
-  const pad = {
-    cx: (bounds.minX + bounds.maxX) / 2,
-    cz: (bounds.minZ + bounds.maxZ) / 2,
-    w: Math.min(420, Math.max(80, padW * 0.92)),
-    d: Math.min(320, Math.max(60, padD * 0.92)),
-    yaw: 0,
-  };
 
   // Outfall: prefer waterway tip near site, else east of disinfection
   let outfallHint: GisLayoutResult['outfallHint'] = null;

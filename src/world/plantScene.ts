@@ -1,5 +1,5 @@
 /**
- * Three.js plant site scene — v0.3: GIS footprint snap, DEM carve, photoreal basins.
+ * Three.js plant site scene — v0.3.9: GIS footprint extrude, zoom, chevrons, minimap hooks.
  */
 import * as THREE from 'three';
 import type { PlantConfig } from '../sim/processModel';
@@ -21,7 +21,7 @@ import {
   type TerrainOpts,
 } from './terrain';
 import { buildOsmSurroundings, type PlantGeoPack } from './osmBake';
-import { buildGisLayout, type GisLayoutResult, type GisUnitSnap } from './gisLayout';
+import { buildGisLayout, type FootprintRing, type GisLayoutResult, type GisUnitSnap } from './gisLayout';
 
 export interface UnitInfo {
   id: string;
@@ -139,7 +139,7 @@ export class PlantScene {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0015);
 
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 1200);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 2800);
     this.root = new THREE.Group();
     this.processRoot = new THREE.Group();
     this.processRoot.name = 'process-train';
@@ -194,6 +194,49 @@ export class PlantScene {
     return this.camCycle === 0 ? 'BIRD' : this.camCycle === 1 ? 'NADIR' : 'WALK';
   }
 
+  /** Pad / orbit state for the corner minimap (not the layout overlay). */
+  getMinimapState(): {
+    pad: { cx: number; cz: number; w: number; d: number };
+    units: { id: string; label: string; x: number; z: number }[];
+    target: { x: number; z: number };
+    cam: { x: number; z: number };
+    yaw: number;
+    pitch: number;
+    orbitDist: number;
+    mode: 'orbit' | 'walk';
+  } {
+    const pad = this.gis?.pad ?? {
+      cx: this.terrainOpts.padCx ?? 0,
+      cz: this.terrainOpts.padCz ?? 0,
+      w: this.terrainOpts.padW,
+      d: this.terrainOpts.padD,
+    };
+    const units = this.units
+      .filter((u) => !u.id.startsWith('osm_'))
+      .map((u) => {
+        const c = new THREE.Box3().setFromObject(u.mesh).getCenter(new THREE.Vector3());
+        return { id: u.id, label: u.label, x: c.x, z: c.z };
+      });
+    return {
+      pad: { cx: pad.cx, cz: pad.cz, w: pad.w, d: pad.d },
+      units,
+      target: { x: this.orbitTarget.x, z: this.orbitTarget.z },
+      cam: { x: this.camera.position.x, z: this.camera.position.z },
+      yaw: this.yaw,
+      pitch: this.pitch,
+      orbitDist: this.orbitDist,
+      mode: this.mode,
+    };
+  }
+
+  /** Click-pan from minimap: move orbit target (and walk pos) on the pad plane. */
+  panToWorld(x: number, z: number): void {
+    this.orbitTarget.set(x, this.padGrade, z);
+    if (this.mode === 'walk') {
+      this.walkPos.set(x, this.sampleEyeY(x, z), z);
+    }
+  }
+
   /** Project process-train unit centres to canvas CSS pixels for the layout overlay. */
   getOverlayAnchors(canvas: HTMLCanvasElement): { id: string; label: string; x: number; y: number }[] {
     const rect = canvas.getBoundingClientRect();
@@ -224,7 +267,7 @@ export class PlantScene {
     this.orbitTarget.y = this.padGrade;
     this.walkPos.set(c.x + 12, this.sampleEyeY(c.x + 12, c.z + 16), c.z + 16);
     if (this.mode === 'orbit' && this.camCycle !== 1) {
-      this.orbitDist = clamp(Math.max(box.getSize(new THREE.Vector3()).length() * 1.8, 28), 22, 180);
+      this.orbitDist = clamp(Math.max(box.getSize(new THREE.Vector3()).length() * 1.8, 28), 22, 520);
       this.pitch = -0.55;
     }
   }
@@ -245,12 +288,13 @@ export class PlantScene {
     if (this.camCycle === 0) {
       this.mode = 'orbit';
       this.pitch = -0.92;
-      this.orbitDist = Math.min(220, span * 0.85);
+      // Bird's-eye must clear full Waterloo/Kitchener GIS pads (span can exceed 700 m)
+      this.orbitDist = clamp(span * 0.95, 40, 620);
       this.yaw = 0.55;
     } else if (this.camCycle === 1) {
       this.mode = 'orbit';
       this.pitch = -1.52;
-      this.orbitDist = Math.min(200, span * 0.75);
+      this.orbitDist = clamp(span * 0.85, 36, 580);
     } else {
       this.mode = 'walk';
       this.pitch = -0.12;
@@ -392,7 +436,7 @@ export class PlantScene {
       const wx = gis.pad.cx + 40;
       const wz = gis.pad.cz + 55;
       this.walkPos.set(wx, this.sampleEyeY(wx, wz), wz);
-      this.orbitDist = Math.min(200, Math.max(gis.pad.w, gis.pad.d) * 0.7);
+      this.orbitDist = clamp(Math.max(gis.pad.w, gis.pad.d) * 0.85, 40, 600);
       this.pitch = -0.85;
     }
   }
@@ -421,7 +465,8 @@ export class PlantScene {
         const sin = Math.sin(-snap.yaw);
         const px = lx * cos - lz * sin;
         const pz = lx * sin + lz * cos;
-        this.addOpenBasin(group, px, pz, fp.width * 0.92, fp.depth * 0.92, 3.4, snap.id, fp.yaw - snap.yaw);
+        // Extrude true footprint ring (fixes AABB×0.92 ~1.9× area oversize)
+        this.addFootprintBasin(group, fp, px, pz, 3.4, snap.id, snap.yaw);
       }
       return group;
     }
@@ -529,6 +574,105 @@ export class PlantScene {
     bridge.castShadow = true;
     bridge.userData.unitId = unitId;
     group.add(bridge);
+  }
+
+  /**
+   * Extrude a basin from the real FootprintRing polygon (local to snap group).
+   * Falls back to OBB box if the ring is degenerate.
+   */
+  private addFootprintBasin(
+    group: THREE.Group,
+    fp: FootprintRing,
+    px: number,
+    pz: number,
+    h: number,
+    unitId: string,
+    snapYaw: number,
+  ): void {
+    const g = new THREE.Group();
+    g.position.set(px, 0, pz);
+
+    const shape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw);
+    if (!shape) {
+      this.addOpenBasin(group, px, pz, fp.obbWidth, fp.obbDepth, h, unitId, fp.yaw - snapYaw);
+      return;
+    }
+
+    // Floor slab
+    const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.25, bevelEnabled: false, curveSegments: 2 });
+    floorGeo.rotateX(-Math.PI / 2);
+    const floor = new THREE.Mesh(floorGeo, this.mats.concrete);
+    floor.position.y = 0.02;
+    floor.receiveShadow = true;
+    floor.userData.unitId = unitId;
+    g.add(floor);
+
+    // Wall shell via outer ring extruded, then we'll add water inset
+    const wallShape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw);
+    if (wallShape) {
+      // Approximate walls: OBB walls oriented to footprint yaw (relative)
+      const yawLocal = fp.yaw - snapYaw;
+      const walls = new THREE.Group();
+      walls.rotation.y = yawLocal;
+      const w = fp.obbWidth;
+      const d = fp.obbDepth;
+      const t = 0.45;
+      const wallMat = this.mats.weathered;
+      const specs: [number, number, number, number, number, number][] = [
+        [w, h, t, 0, h / 2, d / 2],
+        [w, h, t, 0, h / 2, -d / 2],
+        [t, h, d, w / 2, h / 2, 0],
+        [t, h, d, -w / 2, h / 2, 0],
+      ];
+      for (const [bw, bh, bd, x, y, z] of specs) {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), wallMat);
+        wall.position.set(x, y, z);
+        wall.castShadow = true;
+        wall.receiveShadow = true;
+        wall.userData.unitId = unitId;
+        walls.add(wall);
+      }
+      g.add(walls);
+    }
+
+    const waterH = h * 0.72;
+    const waterShape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw, 0.92);
+    if (waterShape) {
+      const waterGeo = new THREE.ExtrudeGeometry(waterShape, {
+        depth: waterH,
+        bevelEnabled: false,
+        curveSegments: 2,
+      });
+      waterGeo.rotateX(-Math.PI / 2);
+      const waterVol = new THREE.Mesh(waterGeo, this.mats.waterDeep);
+      waterVol.position.y = 0.2;
+      waterVol.userData.unitId = unitId;
+      g.add(waterVol);
+
+      const surfGeo = new THREE.ShapeGeometry(waterShape);
+      surfGeo.rotateX(-Math.PI / 2);
+      const surface = new THREE.Mesh(surfGeo, this.mats.water);
+      surface.position.y = waterH + 0.22;
+      surface.userData.unitId = unitId;
+      g.add(surface);
+    }
+
+    // Diffuser baffle hints along OBB
+    const yawLocal = fp.yaw - snapYaw;
+    const baffles = new THREE.Group();
+    baffles.rotation.y = yawLocal;
+    for (let i = 0; i < 3; i++) {
+      const baffle = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, h * 0.55, fp.obbDepth * 0.7),
+        this.mats.concreteAlt,
+      );
+      baffle.position.set(-fp.obbWidth * 0.25 + i * (fp.obbWidth * 0.25), h * 0.35, 0);
+      baffle.userData.unitId = unitId;
+      baffles.add(baffle);
+    }
+    g.add(baffles);
+
+    group.add(g);
   }
 
   private addOpenBasin(
@@ -655,23 +799,40 @@ export class PlantScene {
   private addPiping(hints: { x0: number; z0: number; x1: number; z1: number }[]): void {
     const mat = this.mats.painted.clone();
     mat.color = new THREE.Color(0x5a6a4a);
+    const chevronMat = new THREE.MeshStandardMaterial({
+      color: 0xc8e878,
+      emissive: 0x3a5020,
+      emissiveIntensity: 0.35,
+      metalness: 0.2,
+      roughness: 0.55,
+    });
     for (const seg of hints) {
       const dx = seg.x1 - seg.x0;
       const dz = seg.z1 - seg.z0;
       const len = Math.hypot(dx, dz);
       if (len < 2) continue;
+      const dir = new THREE.Vector3(dx, 0, dz).normalize();
       const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, len, 10), mat);
       pipe.position.set((seg.x0 + seg.x1) / 2, 1.1, (seg.z0 + seg.z1) / 2);
-      pipe.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        new THREE.Vector3(dx, 0, dz).normalize(),
-      );
+      pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
       pipe.castShadow = true;
       this.processRoot.add(pipe);
       // Supports
       const mid = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.0, 0.35), this.mats.concrete);
       mid.position.set((seg.x0 + seg.x1) / 2, 0.5, (seg.z0 + seg.z1) / 2);
       this.processRoot.add(mid);
+      // Flow-direction chevrons along the pipe (process → downstream)
+      const nChev = Math.max(1, Math.min(6, Math.floor(len / 14)));
+      for (let i = 0; i < nChev; i++) {
+        const t = (i + 1) / (nChev + 1);
+        const cx = seg.x0 + dx * t;
+        const cz = seg.z0 + dz * t;
+        const chev = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.4, 4), chevronMat);
+        chev.position.set(cx, 1.85, cz);
+        chev.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        chev.userData.pipeChevron = true;
+        this.processRoot.add(chev);
+      }
     }
   }
 
@@ -1066,7 +1227,7 @@ export class PlantScene {
       'wheel',
       (e) => {
         e.preventDefault();
-        this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 280);
+        this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 600);
       },
       { passive: false },
     );
@@ -1113,8 +1274,37 @@ export class PlantScene {
 
   private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {
     if (!this.onHover) return;
-    const unit = this.pickUnit(clientX, clientY, canvas);
+    let unit = this.pickUnit(clientX, clientY, canvas);
+    // Soft pick: if exact ray misses, tip still shows for nearby process units (more prevalent)
+    if (!unit) unit = this.nearestUnitScreen(clientX, clientY, canvas, 56);
     this.onHover(unit, clientX, clientY);
+  }
+
+  private nearestUnitScreen(
+    clientX: number,
+    clientY: number,
+    canvas: HTMLCanvasElement,
+    maxPx: number,
+  ): UnitInfo | null {
+    const rect = canvas.getBoundingClientRect();
+    let best: UnitInfo | null = null;
+    let bestD = maxPx;
+    const v = new THREE.Vector3();
+    for (const u of this.units) {
+      if (u.id.startsWith('osm_') && u.id !== 'osm_wwtp') continue;
+      const box = new THREE.Box3().setFromObject(u.mesh);
+      box.getCenter(v);
+      v.project(this.camera);
+      if (v.z > 1) continue;
+      const x = (v.x * 0.5 + 0.5) * rect.width + rect.left;
+      const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+      const d = Math.hypot(x - clientX, y - clientY);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    return best;
   }
 
   private setSelected(unit: UnitInfo | null): void {
@@ -1197,4 +1387,30 @@ export class PlantScene {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/** Build a THREE.Shape in snap-local XZ from a world-metre footprint ring. */
+function ringToLocalShape(
+  ring: number[][],
+  cx: number,
+  cz: number,
+  snapYaw: number,
+  scale = 1,
+): THREE.Shape | null {
+  if (!ring || ring.length < 3) return null;
+  const cos = Math.cos(-snapYaw);
+  const sin = Math.sin(-snapYaw);
+  const n = ring.length - (ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0);
+  if (n < 3) return null;
+  const shape = new THREE.Shape();
+  for (let i = 0; i < n; i++) {
+    const dx = (ring[i][0] - cx) * scale;
+    const dz = (ring[i][1] - cz) * scale;
+    const lx = dx * cos - dz * sin;
+    const lz = dx * sin + dz * cos;
+    if (i === 0) shape.moveTo(lx, -lz);
+    else shape.lineTo(lx, -lz);
+  }
+  shape.closePath();
+  return shape;
 }

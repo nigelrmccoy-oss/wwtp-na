@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import type { PlantTextures } from './textures';
 import { asphaltMat, concreteMat, waterMat, grassMat } from './textures';
-import { sampleDemHeight, type DemData } from './terrain';
+import { groundY, type DemData, type TerrainOpts } from './terrain';
+import { classifyFootprint } from './gisLayout';
 
 export interface GeoFeatureProps {
   kind: string;
@@ -229,7 +230,7 @@ export function buildOsmSurroundings(
   pack: PlantGeoPack | null,
   textures: PlantTextures,
   plantId: string,
-  opts?: { maxBuildings?: number; maxRoads?: number },
+  opts?: { maxBuildings?: number; maxRoads?: number; terrain?: TerrainOpts },
 ): OsmBuildResult {
   const group = new THREE.Group();
   group.name = 'osm-surroundings';
@@ -249,6 +250,8 @@ export function buildOsmSurroundings(
   ensureNearSiteFarm(pack);
 
   const dem = pack.dem;
+  const terrainOpts: TerrainOpts = opts?.terrain ?? { padW: 110, padD: 80, padCx: 0, padCz: 0 };
+  const gy = (x: number, z: number) => groundY(x, z, dem, plantId, terrainOpts);
   const maxB = opts?.maxBuildings ?? 180;
   const maxR = opts?.maxRoads ?? 220;
   let bCount = 0;
@@ -300,7 +303,7 @@ export function buildOsmSurroundings(
         const geo = new THREE.ShapeGeometry(shape);
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, wwtpMat);
-        const h = sampleDemHeight(dem, c.x, c.z, plantId);
+        const h = gy(c.x, c.z);
         mesh.position.y = h + 0.03;
         mesh.receiveShadow = true;
         mesh.raycast = () => {};
@@ -336,7 +339,7 @@ export function buildOsmSurroundings(
         const geo = new THREE.ShapeGeometry(shape2);
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, farmMat);
-        mesh.position.y = sampleDemHeight(dem, c.x, c.z, plantId) + 0.06;
+        mesh.position.y = gy(c.x, c.z) + 0.06;
         mesh.receiveShadow = true;
         group.add(mesh);
         continue;
@@ -346,7 +349,7 @@ export function buildOsmSurroundings(
       geo.rotateX(-Math.PI / 2);
       const isBarn = /barn|farm|farm_auxiliary|shed/i.test(f.properties.building || '');
       const mesh = new THREE.Mesh(geo, isBarn ? barnMat : buildingMat);
-      mesh.position.y = sampleDemHeight(dem, c.x, c.z, plantId);
+      mesh.position.y = gy(c.x, c.z);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       const label = f.properties.name || (isBarn ? 'Barn' : 'Building');
@@ -371,7 +374,7 @@ export function buildOsmSurroundings(
       geo.rotateX(-Math.PI / 2);
       const c = centroid(ring);
       const mesh = new THREE.Mesh(geo, landMat);
-      mesh.position.y = sampleDemHeight(dem, c.x, c.z, plantId) + 0.04;
+      mesh.position.y = gy(c.x, c.z) + 0.04;
       mesh.receiveShadow = true;
       group.add(mesh);
       continue;
@@ -379,13 +382,30 @@ export function buildOsmSurroundings(
 
     if ((kind === 'water' || kind === 'waterway') && geom.type === 'Polygon') {
       const ring = geom.coordinates[0] as number[][];
+      // Process clarifiers/basins are owned by plantScene GIS snaps — do not
+      // paint flat OSM water sheets over them (floods the yard after grade-lock).
+      // Only natural waterways / ponds (classifyFootprint kind === 'other').
+      const fp = classifyFootprint(ring);
+      if (!fp || fp.kind !== 'other') continue;
+      const c = centroid(ring);
+      const padCx = terrainOpts.padCx ?? 0;
+      const padCz = terrainOpts.padCz ?? 0;
+      const padW = terrainOpts.padW;
+      const padD = terrainOpts.padD;
+      const margin = 8;
+      // Punch-out: any water whose centroid sits on the process pad.
+      if (
+        Math.abs(c.x - padCx) < padW * 0.5 + margin &&
+        Math.abs(c.z - padCz) < padD * 0.5 + margin
+      )
+        continue;
       const shape = ringToShape(ring);
       if (!shape) continue;
       const geo = new THREE.ShapeGeometry(shape);
       geo.rotateX(-Math.PI / 2);
-      const c = centroid(ring);
       const mesh = new THREE.Mesh(geo, waterM);
-      mesh.position.y = sampleDemHeight(dem, c.x, c.z, plantId) + 0.08;
+      // Sit slightly above carved channel bottom (groundY already subtracts carve).
+      mesh.position.y = gy(c.x, c.z) + 0.12;
       mesh.receiveShadow = true;
       group.add(mesh);
       continue;
@@ -407,7 +427,7 @@ export function buildOsmSurroundings(
         const mx = (x0 + x1) / 2;
         const mz = (z0 + z1) / 2;
         if (Math.abs(mx) < 35 && Math.abs(mz) < 28) continue;
-        const h = sampleDemHeight(dem, mx, mz, plantId);
+        const h = gy(mx, mz);
         const seg = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, len), asphalt);
         seg.position.set(mx, h + 0.12, mz);
         seg.rotation.y = Math.atan2(dx, dz);
@@ -420,6 +440,8 @@ export function buildOsmSurroundings(
 
     if (kind === 'waterway' && geom.type === 'LineString') {
       const coords = geom.coordinates as number[][];
+      const padCx = terrainOpts.padCx ?? 0;
+      const padCz = terrainOpts.padCz ?? 0;
       for (let i = 0; i < coords.length - 1; i++) {
         const [x0, z0] = coords[i];
         const [x1, z1] = coords[i + 1];
@@ -429,7 +451,9 @@ export function buildOsmSurroundings(
         if (len < 2) continue;
         const mx = (x0 + x1) / 2;
         const mz = (z0 + z1) / 2;
-        const h = sampleDemHeight(dem, mx, mz, plantId);
+        // Skip waterway segments cutting through process pad center
+        if (Math.abs(mx - padCx) < 35 && Math.abs(mz - padCz) < 28) continue;
+        const h = gy(mx, mz);
         const seg = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.08, len), waterM);
         seg.position.set(mx, h + 0.05, mz);
         seg.rotation.y = Math.atan2(dx, dz);

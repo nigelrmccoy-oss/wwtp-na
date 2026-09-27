@@ -1,4 +1,4 @@
-# WWTP-NA v0.2
+# WWTP-NA v0.3.9
 
 **North American wastewater / onsite sewage operator-training simulator** (browser-first).
 
@@ -18,6 +18,14 @@ npm run build
 npm run preview
 ```
 
+Optional Cesium scaffold (never commit tokens):
+
+```bash
+# .env.local (gitignored)
+VITE_CESIUM_ION_TOKEN=your_ion_token
+VITE_CESIUM_ENABLED=true
+```
+
 ## Plants
 
 The menu loads **every** entry in `src/data/plants.json` dynamically (sorted micro → large). Current pack includes:
@@ -34,21 +42,42 @@ The menu loads **every** entry in `src/data/plants.json` dynamically (sorted mic
 
 See `docs/research-plants.md` and each plant’s `sources` in JSON.
 
-## What’s in v0.2
+## What’s in v0.3.9
 
-- **OSM / DEM surroundings** — cached Overpass extracts + elevation under `public/geo/{plantId}.json`; extruded buildings, asphalt roads, farm/landuse, water; process train stays playable
-- **Realistic textures** — grass / concrete / asphalt / water / metal via `THREE.TextureLoader` + RepeatWrapping; hemisphere + directional shadows
-- **Acronym tutorial** — first-run modal + menu **Tutorial** button (WWTP, SCADA, MLD, BOD, TSS, TP, TAN, DO, MLSS, UV, ECA, RAS/WAS, …)
-- **Autopilot** — SCADA toggle; tracks DO/blowers, wet-well pumps, chem dose vs ECA TP, disinfection online, septic float clear; **AUTOPILOT** badge
-- **Hover tooltips** — raycast explainers + **Open controls** highlights related SCADA setpoints
-- All v0.1 P0/P1 behaviour retained (DO defaults, process-aware disinfection, pump≠influent, sim speed, TP ECA, alarm list)
+- **Zoom / bird’s-eye** — orbit distance max raised to 600 so Waterloo/Kitchener GIS pads fit in the V-key bird’s-eye / nadir cycle.
+- **True footprint basins** — extrude OSM rings (not AABB×0.92 boxes) so aeration meshes match area; Kitchener rectangular primaries; Waterloo twin aeration split when OSM merges tanks.
+- **Uncapped GIS pad** — asphalt yard tracks real WWTP footprint (e.g. Kitchener ~746×485); headworks/UV/solids park on pad margins instead of hardcoded ±45/55 m.
+- **Corner minimap** — pad + units + frustum wedge + click-pan (separate from layout overlay).
+- **HoverTip live tags** — feeds SimState (DO/MLSS/flows); soft-pick for more prevalent tips; pipe flow chevrons.
+- **Bake** — denser per-kind caps, Kitchener bad-water denylist; DEM rebake prefers Open-Meteo (falls back if rate-limited).
 
-## What’s in v0.1 (still)
+## What’s in v0.3.0 (still)
 
-- Menu → pick any plant from JSON (septic + municipal)
-- Three.js site: labeled units, orbit + WASD, walk mode (`C`), click-to-select
-- Windowed SCADA + continuous mass-balance-lite model + alarms
-- Synthesized Web Audio SFX
+- **Z — Autopilot on/off** — toggles SCADA Autopilot; synced with SCADA checkbox + HUD badge (ignored while typing in inputs).
+- **GIS footprint snap (P0)** — Waterloo + Kitchener (and any plant with enough on-site OSM water polygons) place clarifiers / aeration basins on real bake footprints at plausible metres-scale, not schematic toys on pavement.
+- **DEM / terrain** — Open-Meteo DEM from `public/geo/*.json`; water polygons carve channels so flat pads no longer clip imaginary waterways.
+- **Cesium scaffolding** — feature-flagged (`VITE_CESIUM_ENABLED`); Ion token via `VITE_CESIUM_ION_TOKEN` / `.env.local` (**never committed**). Full globe + Ion imagery/terrain sync is **deferred** — Three.js DEM + GIS is the active path.
+- **Piping + outfalls** — process interconnect pipes + outfall channel from GIS chain / nearby OSM waterways where available.
+- **Photoreal materials** — regenerated tileable PBR-ish maps (concrete, weathered concrete, asphalt, grass, water + normals, metal, painted metal); open-walled wet basins with reflective water surfaces.
+- Includes **v0.2.1** UX / geometry fixes (camera cycle, septic realism, walled clarifiers, layout overlay, controls clarity).
+
+## What’s in v0.2.1 (still)
+
+- Controls / Autopilot clarity, `V` camera cycle, `O` overlay, `[` `]` sim speed, `A` alarm ACK, `Tab` / `F` unit focus
+- Septic realism, walled clarifiers, layout overlay, acronym tutorial bands
+
+## What’s in v0.2 (still)
+
+- OSM / DEM surroundings under `public/geo/{plantId}.json`
+- Autopilot DO/blowers / wet-well / chem / disinfection
+- Hover tooltips + Open controls
+
+## Deferred / follow-ups
+
+- **Full Cesium globe** — `npm` Cesium dependency, dual-canvas WGS84 ↔ ENU sync, Ion world imagery as ground context (scaffold only in 0.3).
+- Richer GIS snap for Galt / Woodward / Ashbridges when bake water footprints are sparse.
+- Kitchener Open-Meteo DEM when API is not rate-limited (bake currently may fall back to procedural).
+- Finer OSM process tagging (named tanks) when available — still no Street View / Apple Maps scrape.
 
 ## Attributions
 
@@ -56,15 +85,21 @@ See `docs/research-plants.md` and each plant’s `sources` in JSON.
 |-------|------------------|
 | Roads, buildings, landuse, water, WWTP footprints | © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (**ODbL**) — baked via Overpass into `public/geo/` |
 | Elevation samples | [Open-Meteo Elevation API](https://open-meteo.com/) when reachable; else procedural heightfield seeded by plant id |
-| Material textures | Bundled generated maps in `public/textures/` (grass, concrete, asphalt, water, metal) |
+| Material textures | Generated maps in `public/textures/` (`node scripts/genTextures.mjs`) |
 | Capacities / process trains | Public reports cited in `plants.json` / `docs/research-plants.md` |
 
-**Not used:** Street View, Apple Maps, or scraped satellite tiles. Optional Esri World Imagery is **not** enabled in v0.2 (textured DEM is enough).
+**Not used:** Street View, Apple Maps, or scraped satellite tiles.
 
 Rebake geo (network required):
 
 ```bash
 node scripts/bakeGeo.mjs
+```
+
+Regenerate textures:
+
+```bash
+node scripts/genTextures.mjs
 ```
 
 ## Controls
@@ -75,45 +110,11 @@ node scripts/bakeGeo.mjs
 | Mouse drag | Look / orbit |
 | Wheel | Zoom |
 | C | Orbit ↔ walk |
-| Hover unit | Tooltip (what it does + acronyms) |
-| Click unit | Select |
-| Tooltip **Open controls** | Highlight related SCADA setpoints |
-| SCADA Autopilot | ON = auto NORMAL/ECA · OFF = manual |
+| V | Camera cycle: bird’s-eye → nadir → walk |
+| **Z** | **Autopilot on/off** |
+| O | Toggle layout overlay |
+| [ / ] | Sim speed down / up (1× · 4× · 12×) |
+| A | Acknowledge (silence) active alarms |
+| Tab | Cycle unit focus |
+| F | Focus camera on selected / first unit |
 | Esc | Menu |
-| Menu **Tutorial** | Reopen acronym glossary |
-
-## Audio / SFX
-
-SFX are **synthesized** in `src/audio/AudioEngine.ts`. Optional: drop `.ogg`/`.wav` into `public/sfx/` (see `public/sfx/SOURCES.md`).
-
-## Stack
-
-Vite 6 + TypeScript + Three.js r170 · HTML/CSS SCADA
-
-## Layout
-
-```
-src/main.ts
-src/audio/AudioEngine.ts
-src/ui/menu.ts
-src/ui/scada.ts
-src/ui/tutorial.ts
-src/ui/hoverTip.ts
-src/world/plantScene.ts
-src/world/textures.ts
-src/world/terrain.ts
-src/world/osmBake.ts
-src/sim/processModel.ts
-src/sim/autopilot.ts
-src/data/plants.json
-src/data/plantTypes.ts
-public/geo/
-public/textures/
-public/sfx/
-scripts/bakeGeo.mjs
-docs/research-plants.md
-```
-
-## Affiliation
-
-Training-sim tribute only. Do not use for real plant or septic control decisions.

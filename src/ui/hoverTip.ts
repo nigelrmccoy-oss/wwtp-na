@@ -1,7 +1,11 @@
 /**
- * Floating hover tooltip for process units (+ OSM buildings) with SCADA shortcuts.
+ * Floating hover tooltip for process units (+ OSM buildings) with SCADA shortcuts
+ * and live SimState tags (v0.3.9).
  */
 import { audio } from '../audio/AudioEngine';
+import type { SimState } from '../sim/processModel';
+import type { PlantRuntime } from '../data/plantTypes';
+import { formatFlow } from '../data/plantTypes';
 
 export interface UnitExplainer {
   name: string;
@@ -51,6 +55,11 @@ export const UNIT_EXPLAINERS: Record<string, UnitExplainer> = {
     name: 'Anaerobic digesters',
     blurb: 'Stabilize sludge without oxygen; often make biogas for CHP / heating.',
     scadaControls: [],
+  },
+  outfall: {
+    name: 'Outfall',
+    blurb: 'Treated effluent discharge to the receiver. Watch ECA limits and disinfection status upstream.',
+    scadaControls: ['spDisinfect'],
   },
   house: {
     name: 'Farmhouse',
@@ -102,24 +111,46 @@ export class HoverTip {
   private onFocusScada: FocusScadaFn;
   private currentIds: string[] = [];
   private currentUnitId: string | null = null;
+  private currentLabel = '';
+  private lastState: SimState | null = null;
+  private plant: PlantRuntime | null = null;
+  private lastClientX = 0;
+  private lastClientY = 0;
 
-  constructor(host: HTMLElement, onFocusScada: FocusScadaFn) {
+  constructor(host: HTMLElement, onFocusScada: FocusScadaFn, plant?: PlantRuntime) {
     this.onFocusScada = onFocusScada;
+    this.plant = plant ?? null;
     this.el = document.createElement('div');
     this.el.className = 'hover-tip hidden';
     this.el.setAttribute('role', 'tooltip');
     host.appendChild(this.el);
-    // Leaving the tip card clears it (canvas leave is ignored when entering tip)
     this.el.addEventListener('pointerleave', (e) => {
       const rt = e.relatedTarget as Node | null;
       const canvas = document.getElementById('c');
       if (canvas && rt && (rt === canvas || canvas.contains(rt))) return;
       this.hide();
     });
+    this.el.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || t.id !== 'hoverOpenCtrl') return;
+      e.stopPropagation();
+      e.preventDefault();
+      audio.uiClick();
+      this.onFocusScada(this.currentIds);
+    });
   }
 
   destroy(): void {
     this.el.remove();
+  }
+
+  /** Feed live sim tags so the tip stays current while hovered. */
+  setState(state: SimState): void {
+    this.lastState = state;
+    if (this.currentUnitId && !this.el.classList.contains('hidden')) {
+      this.renderBody(this.currentUnitId, this.currentLabel);
+      this.position(this.lastClientX, this.lastClientY);
+    }
   }
 
   hide(): void {
@@ -130,26 +161,17 @@ export class HoverTip {
   }
 
   show(unitId: string, label: string, clientX: number, clientY: number): void {
-    if (unitId !== this.currentUnitId) {
+    this.lastClientX = clientX;
+    this.lastClientY = clientY;
+    const switched = unitId !== this.currentUnitId;
+    if (switched) {
       const ex = explainerFor(unitId, label);
       this.currentUnitId = unitId;
+      this.currentLabel = label;
       this.currentIds = ex.scadaControls;
-      const btn =
-        ex.scadaControls.length > 0
-          ? `<button type="button" class="hover-open" id="hoverOpenCtrl">Open controls</button>`
-          : '';
-      this.el.innerHTML = `
-      <div class="hover-title">${ex.name}</div>
-      <div class="hover-blurb">${ex.blurb}</div>
-      ${btn}
-    `;
-      const b = this.el.querySelector('#hoverOpenCtrl');
-      b?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        audio.uiClick();
-        this.onFocusScada(this.currentIds);
-      });
+      this.renderBody(unitId, label);
+    } else if (this.lastState) {
+      this.renderBody(unitId, label);
     }
     this.el.classList.remove('hidden');
     this.position(clientX, clientY);
@@ -165,4 +187,54 @@ export class HoverTip {
     this.el.style.left = `${Math.max(8, left)}px`;
     this.el.style.top = `${Math.max(8, top)}px`;
   }
+
+  private renderBody(unitId: string, label: string): void {
+    const ex = explainerFor(unitId, label);
+    const live = this.liveLines(unitId);
+    const btn =
+      ex.scadaControls.length > 0
+        ? `<button type="button" class="hover-open" id="hoverOpenCtrl">Open controls</button>`
+        : '';
+    const liveHtml = live
+      ? `<div class="hover-live">${live.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
+      : '';
+    this.el.innerHTML = `
+      <div class="hover-title">${escapeHtml(ex.name)}</div>
+      <div class="hover-blurb">${escapeHtml(ex.blurb)}</div>
+      ${liveHtml}
+      ${btn}
+    `;
+  }
+
+  private liveLines(unitId: string): string[] {
+    const state = this.lastState;
+    const p = this.plant;
+    if (!state || !p) return [];
+    const lines: string[] = [];
+    if (p.isSeptic) {
+      if (unitId === 'septic_tank' || unitId === 'house' || unitId === 'distribution' || unitId === 'leaching_bed') {
+        lines.push(`Tank ${state.tankLevelPct.toFixed(0)}% · to bed ${formatFlow(state.effluentFlowMld, p, 2)}`);
+        lines.push(`Float ${state.pumpAlarmFloat ? 'ALARM' : 'OK'} · ${state.statusLine}`);
+      }
+      return lines;
+    }
+    lines.push(`Q in ${formatFlow(state.influentFlowMld, p, 1)} · out ${formatFlow(state.effluentFlowMld, p, 1)}`);
+    if (unitId === 'aeration' || (unitId === 'primary' && p.hasOxidationDitch)) {
+      lines.push(`DO ${state.doMgL.toFixed(2)} mg/L`);
+    }
+    if (unitId === 'secondary') lines.push(`MLSS ${state.mlssMgL.toFixed(0)} mg/L`);
+    if (unitId === 'headworks') lines.push(`Wet-well ${state.wetWellLevelPct.toFixed(0)}%`);
+    if (unitId === 'disinfection' || unitId === 'outfall') lines.push(`Disinfect ${state.disinfectionStatus}`);
+    if (unitId === 'primary' && !p.hasOxidationDitch) lines.push(`Primary settle · ${state.statusLine}`);
+    else lines.push(state.statusLine);
+    return lines;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

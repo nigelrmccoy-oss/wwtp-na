@@ -10,6 +10,7 @@ import { Autopilot } from './sim/autopilot';
 import { HoverTip } from './ui/hoverTip';
 import { maybeShowFirstRunTutorial } from './ui/tutorial';
 import { LayoutOverlay } from './ui/layoutOverlay';
+import { Minimap } from './ui/minimap';
 import { getCesiumScaffoldStatus, mountCesiumScaffold } from './world/cesiumLayer';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
@@ -22,6 +23,7 @@ let model: ProcessModel | null = null;
 let scada: ScadaOverlay | null = null;
 let hoverTip: HoverTip | null = null;
 let layoutOverlay: LayoutOverlay | null = null;
+let minimap: Minimap | null = null;
 let autopilot: Autopilot | null = null;
 let raf = 0;
 let last = performance.now();
@@ -69,7 +71,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     },
   });
 
-  hoverTip = new HoverTip(hudHost, (ids) => scada?.focusControls(ids));
+  hoverTip = new HoverTip(hudHost, (ids) => scada?.focusControls(ids), plant);
 
   const modeBadge = document.getElementById('modeBadge');
   const setModeBadge = (mode: 'orbit' | 'walk') => {
@@ -112,6 +114,9 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   );
   setModeBadge('orbit');
   setCamCycleBadge(scene.getCamCycleLabel());
+
+  minimap?.destroy();
+  minimap = new Minimap(document.getElementById('app')!, scene);
 
   // Attribution footer (OSM only — DEM has its own HUD badge)
   let attr = document.getElementById('geoAttr');
@@ -206,9 +211,11 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
       lastState = state;
       scada.update(state);
       lastAlarmIds = state.alarms.map((a) => a.id);
+      hoverTip?.setState(state);
       if (layoutOverlay && scene) {
         layoutOverlay.update(state, scene.getOverlayAnchors(canvas));
       }
+      minimap?.update();
       if (onSite) {
         audio.setPlantLevels({
           pumpSpeedPct: model.setpoints.pumpSpeedPct,
@@ -235,6 +242,8 @@ function teardownRun(): void {
   hoverTip = null;
   layoutOverlay?.destroy();
   layoutOverlay = null;
+  minimap?.destroy();
+  minimap = null;
   autopilot = null;
   model = null;
   lastAlarmIds = [];

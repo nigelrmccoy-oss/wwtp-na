@@ -40,6 +40,7 @@ export interface GisLayoutResult {
   used: boolean;
   snaps: GisUnitSnap[];
   pad: { cx: number; cz: number; w: number; d: number; yaw: number } | null;
+  /** Natural waterway/pond rings for terrain carve (excludes process basins/clarifiers). */
   waterMasks: FootprintRing[];
   outfallHint: { x: number; z: number; yaw: number } | null;
   pipingHints: { x0: number; z0: number; x1: number; z1: number }[];
@@ -217,7 +218,9 @@ export function buildGisLayout(
       const ring = f.geometry.coordinates[0] as number[][];
       const fp = classifyFootprint(ring);
       if (!fp) continue;
-      waterMasks.push(fp);
+      // Carve masks: natural waterways / ponds only. Process clarifiers & basins
+      // already have mesh floors — carving them leaves floating water sheets.
+      if (fp.kind === 'other') waterMasks.push(fp);
       if (!inside(bounds, fp.cx, fp.cz, 60)) continue;
       if (fp.kind === 'clarifier' || fp.kind === 'basin') footprints.push(fp);
     }

@@ -12,7 +12,14 @@ import {
   metalMat,
   paintedMetalMat,
 } from './textures';
-import { buildTerrainGround, demFromGeoPack } from './terrain';
+import {
+  buildTerrainGround,
+  demFromGeoPack,
+  groundY,
+  computePadGrade,
+  type DemData,
+  type TerrainOpts,
+} from './terrain';
 import { buildOsmSurroundings, type PlantGeoPack } from './osmBake';
 import { buildGisLayout, type GisLayoutResult, type GisUnitSnap } from './gisLayout';
 
@@ -73,6 +80,10 @@ export class PlantScene {
   private pointerMoved = false;
   private textures: PlantTextures;
   private gis: GisLayoutResult | null = null;
+  private dem: DemData | null = null;
+  private padGrade = 0;
+  private terrainOpts: TerrainOpts = { padW: 110, padD: 80 };
+  private readonly eyeHeight = 1.7;
   private mats: {
     concrete: THREE.MeshStandardMaterial;
     concreteAlt: THREE.MeshStandardMaterial;
@@ -210,8 +221,8 @@ export class PlantScene {
     const box = new THREE.Box3().setFromObject(unit.mesh);
     const c = box.getCenter(new THREE.Vector3());
     this.orbitTarget.copy(c);
-    this.orbitTarget.y = 0;
-    this.walkPos.set(c.x + 12, 2.2, c.z + 16);
+    this.orbitTarget.y = this.padGrade;
+    this.walkPos.set(c.x + 12, this.sampleEyeY(c.x + 12, c.z + 16), c.z + 16);
     if (this.mode === 'orbit' && this.camCycle !== 1) {
       this.orbitDist = clamp(Math.max(box.getSize(new THREE.Vector3()).length() * 1.8, 28), 22, 180);
       this.pitch = -0.55;
@@ -308,18 +319,28 @@ export class PlantScene {
     const padCz = this.gis.pad?.cz ?? 0;
 
     const dem = demFromGeoPack(geo);
-    this.root.add(
-      buildTerrainGround(this.plant.id, dem, this.textures, {
-        padW,
-        padD,
-        padCx,
-        padCz,
-        waterMasks: this.gis.waterMasks,
-        flattenPad: true,
-      }),
-    );
+    this.dem = dem;
+    const padGrade = computePadGrade(dem, this.plant.id, padCx, padCz, padW, padD);
+    this.padGrade = padGrade;
+    this.terrainOpts = {
+      padW,
+      padD,
+      padCx,
+      padCz,
+      waterMasks: this.gis.waterMasks,
+      flattenPad: true,
+      padSkirtM: 15,
+      padGrade,
+    };
+    const terrain = buildTerrainGround(this.plant.id, dem, this.textures, this.terrainOpts);
+    this.root.add(terrain.group);
 
-    const osm = buildOsmSurroundings(geo, this.textures, this.plant.id);
+    // Process units share the asphalt yard datum
+    this.processRoot.position.y = padGrade;
+
+    const osm = buildOsmSurroundings(geo, this.textures, this.plant.id, {
+      terrain: this.terrainOpts,
+    });
     this.attribution = osm.attribution;
     this.demSource = geo?.dem?.source || geo?.attribution?.dem || osm.attribution;
     this.root.add(osm.group);
@@ -367,8 +388,10 @@ export class PlantScene {
     }
 
     if (gis.pad) {
-      this.orbitTarget.set(gis.pad.cx, 0, gis.pad.cz);
-      this.walkPos.set(gis.pad.cx + 40, 2.2, gis.pad.cz + 55);
+      this.orbitTarget.set(gis.pad.cx, this.padGrade, gis.pad.cz);
+      const wx = gis.pad.cx + 40;
+      const wz = gis.pad.cz + 55;
+      this.walkPos.set(wx, this.sampleEyeY(wx, wz), wz);
       this.orbitDist = Math.min(200, Math.max(gis.pad.w, gis.pad.d) * 0.7);
       this.pitch = -0.85;
     }
@@ -933,12 +956,12 @@ export class PlantScene {
     this.orbitDist = 42 + 28 * s;
     if (this.plant.isSeptic) {
       this.orbitTarget.set(12 * s, 0, 12 * s);
-      this.walkPos.set(-8 * s, 2.2, 22 * s);
+      this.walkPos.set(-8 * s, this.sampleEyeY(-8 * s, 22 * s), 22 * s);
       this.orbitDist = 50 + 20 * s;
       this.pitch = -0.72;
     } else {
       this.orbitTarget.set(8 * s, 0, -4 * s);
-      this.walkPos.set(28 * s, 2.2, 38 * s);
+      this.walkPos.set(28 * s, this.sampleEyeY(28 * s, 38 * s), 38 * s);
     }
   }
 
@@ -1110,6 +1133,11 @@ export class PlantScene {
     this.onSelect(unit);
   }
 
+  /** Walk / orbit eye height from shared groundY datum. */
+  private sampleEyeY(x: number, z: number): number {
+    return groundY(x, z, this.dem, this.plant.id, this.terrainOpts) + this.eyeHeight;
+  }
+
   private update(dt: number): void {
     const speed = (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 28 : 14) * dt;
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
@@ -1120,7 +1148,7 @@ export class PlantScene {
       if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) this.walkPos.addScaledVector(forward, -speed);
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) this.walkPos.addScaledVector(right, -speed);
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) this.walkPos.addScaledVector(right, speed);
-      this.walkPos.y = 2.2;
+      this.walkPos.y = this.sampleEyeY(this.walkPos.x, this.walkPos.z);
       this.camera.position.copy(this.walkPos);
       const look = this.walkPos.clone().add(
         new THREE.Vector3(

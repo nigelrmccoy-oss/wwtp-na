@@ -1,7 +1,7 @@
 /**
- * DEM / heightfield ground mesh for plant surroundings (v0.3).
- * Real Open-Meteo DEM from geo bake when present; water polygons carve channels
- * so flat pads no longer clip imaginary waterways.
+ * DEM / heightfield ground mesh for plant surroundings (v0.3 grade-lock).
+ * One shared groundY datum so grass, asphalt pad, process units, OSM, water,
+ * and walk camera agree. Soft pad skirt; natural-waterway carve only.
  */
 import * as THREE from 'three';
 import { grassMat, asphaltMat, type PlantTextures } from './textures';
@@ -14,6 +14,30 @@ export interface DemData {
   baseElevationM: number;
   samples: { x: number; z: number; h: number }[];
   source: string;
+}
+
+/** Options shared by terrain mesh, OSM bake, and walk camera. */
+export interface TerrainOpts {
+  padW: number;
+  padD: number;
+  padCx?: number;
+  padCz?: number;
+  /**
+   * Natural waterway / pond footprints only (rivers, lakes).
+   * Process clarifiers / basins must NOT be included — they have mesh floors.
+   */
+  waterMasks?: FootprintRing[];
+  /** Soft-lerp DEM → padGrade inside pad (default true). */
+  flattenPad?: boolean;
+  /** Soft skirt width outside pad edge (metres). Default 15. */
+  padSkirtM?: number;
+  /** Precomputed pad grade; computed from DEM mean under pad if omitted. */
+  padGrade?: number;
+}
+
+export interface TerrainBuildResult {
+  group: THREE.Group;
+  padGrade: number;
 }
 
 function hashSeed(id: string): number {
@@ -34,7 +58,19 @@ function noiseH(x: number, z: number, seed: number): number {
   );
 }
 
-/** Bilinear sample of DEM relative height (m) at local x,z. */
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp((x - edge0) / (edge1 - edge0 + 1e-12), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Bilinear sample of DEM relative height (m) at local x,z — 1:1 near plant.
+ * No global *0.45 fudge; callers that want far mild exaggerate use groundY.
+ */
 export function sampleDemHeight(dem: DemData | null, x: number, z: number, plantId: string): number {
   if (!dem || !dem.samples.length) {
     return noiseH(x, z, hashSeed(plantId)) * 0.15;
@@ -57,19 +93,35 @@ export function sampleDemHeight(dem: DemData | null, x: number, z: number, plant
   const h11 = dem.samples[j1 * n + i1]?.h ?? 0;
   const h0 = h00 * (1 - tx) + h10 * tx;
   const h1 = h01 * (1 - tx) + h11 * tx;
-  // Readable relief; lake cliffs still exaggerated less than raw metres
-  return (h0 * (1 - tz) + h1 * tz) * 0.45;
+  return h0 * (1 - tz) + h1 * tz;
 }
 
-export interface TerrainOpts {
-  padW: number;
-  padD: number;
-  padCx?: number;
-  padCz?: number;
-  /** Water / basin footprints to carve below grade. */
-  waterMasks?: FootprintRing[];
-  /** Soften DEM inside pad without zeroing waterways. */
-  flattenPad?: boolean;
+/**
+ * Mean DEM height under the asphalt pad footprint (the shared yard datum).
+ * Falls back to center sample when dem is missing.
+ */
+export function computePadGrade(
+  dem: DemData | null,
+  plantId: string,
+  padCx: number,
+  padCz: number,
+  padW: number,
+  padD: number,
+): number {
+  const samples: number[] = [];
+  const nx = 7;
+  const nz = 7;
+  for (let iz = 0; iz < nz; iz++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const u = (ix + 0.5) / nx;
+      const v = (iz + 0.5) / nz;
+      const x = padCx + (u - 0.5) * padW * 0.9;
+      const z = padCz + (v - 0.5) * padD * 0.9;
+      samples.push(sampleDemHeight(dem, x, z, plantId));
+    }
+  }
+  if (!samples.length) return sampleDemHeight(dem, padCx, padCz, plantId);
+  return samples.reduce((a, b) => a + b, 0) / samples.length;
 }
 
 function pointInRing(ring: number[][], x: number, z: number): boolean {
@@ -85,17 +137,85 @@ function pointInRing(ring: number[][], x: number, z: number): boolean {
   return inside;
 }
 
-function waterCarve(masks: FootprintRing[] | undefined, x: number, z: number): number {
+/**
+ * Natural-waterway carve depth (positive metres). Skips clarifier/basin masks
+ * that already have process mesh floors.
+ */
+function naturalWaterCarveDepth(masks: FootprintRing[] | undefined, x: number, z: number): number {
   if (!masks?.length) return 0;
   for (const m of masks) {
-    // Quick bbox reject
+    if (m.kind === 'clarifier' || m.kind === 'basin') continue;
     if (Math.abs(x - m.cx) > m.width * 0.65 || Math.abs(z - m.cz) > m.depth * 0.65) continue;
     if (pointInRing(m.ring, x, z)) {
-      // Carved channel / basin depression
-      return m.kind === 'basin' ? -1.8 : m.kind === 'clarifier' ? -1.2 : -0.9;
+      // Rivers / ponds — fixed channel depth below local grade
+      return 0.9;
     }
   }
   return 0;
+}
+
+/**
+ * Soft pad blend weight: 1 inside pad, 0 outside skirt (~10–20 m).
+ * Uses distance-outside rounded rectangle + smoothstep.
+ */
+function padBlendWeight(
+  x: number,
+  z: number,
+  padCx: number,
+  padCz: number,
+  padW: number,
+  padD: number,
+  skirtM: number,
+): number {
+  const ox = Math.max(0, Math.abs(x - padCx) - padW * 0.5);
+  const oz = Math.max(0, Math.abs(z - padCz) - padD * 0.5);
+  const distOutside = Math.hypot(ox, oz);
+  return 1 - smoothstep(0, skirtM, distOutside);
+}
+
+/**
+ * Shared ground height (metres, local Y) for every consumer:
+ * terrain vertices, asphalt pad, process units, OSM, water, walk camera.
+ *
+ * - DEM sampled 1:1 near plant; mild relief exaggerate only far from pad.
+ * - Soft-lerp DEM → padGrade inside pad with smoothstep skirt (not hard *0.12).
+ * - Natural waterway carve = local height − fixed depth (no process basins).
+ */
+export function groundY(
+  x: number,
+  z: number,
+  dem: DemData | null,
+  plantId: string,
+  opts: TerrainOpts,
+): number {
+  const padCx = opts.padCx ?? 0;
+  const padCz = opts.padCz ?? 0;
+  const padW = opts.padW;
+  const padD = opts.padD;
+  const skirt = opts.padSkirtM ?? 15;
+  const flatten = opts.flattenPad !== false;
+  const padGrade =
+    opts.padGrade ?? computePadGrade(dem, plantId, padCx, padCz, padW, padD);
+
+  let raw = sampleDemHeight(dem, x, z, plantId);
+
+  // Mild exaggerate only far from pad (1:1 on / near yard)
+  const far = Math.hypot(x - padCx, z - padCz);
+  const farT = smoothstep(Math.max(padW, padD) * 0.6, Math.max(padW, padD) * 2.2 + 80, far);
+  const reliefScale = 1 + farT * 0.2; // up to 1.2× far away
+  raw *= reliefScale;
+
+  let h = raw;
+  if (flatten) {
+    const w = padBlendWeight(x, z, padCx, padCz, padW, padD, skirt);
+    h = raw * (1 - w) + padGrade * w;
+  }
+
+  const carve = naturalWaterCarveDepth(opts.waterMasks, x, z);
+  if (carve > 0) {
+    h = h - carve;
+  }
+  return h;
 }
 
 export function buildTerrainGround(
@@ -103,7 +223,7 @@ export function buildTerrainGround(
   dem: DemData | null,
   textures: PlantTextures,
   opts: TerrainOpts,
-): THREE.Group {
+): TerrainBuildResult {
   const group = new THREE.Group();
   const size = 360;
   const seg = 128;
@@ -114,25 +234,14 @@ export function buildTerrainGround(
   const padCz = opts.padCz ?? 0;
   const padW = opts.padW;
   const padD = opts.padD;
-  const flatten = opts.flattenPad !== false;
+  const padGrade =
+    opts.padGrade ?? computePadGrade(dem, plantId, padCx, padCz, padW, padD);
+  const groundOpts: TerrainOpts = { ...opts, padGrade };
 
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
-    let h = sampleDemHeight(dem, x, z, plantId);
-    const carve = waterCarve(opts.waterMasks, x, z);
-    if (carve < 0) {
-      // Prefer real waterway elevation — do not flatten over water
-      h = Math.min(h * 0.25, 0.05) + carve;
-    } else if (
-      flatten &&
-      Math.abs(x - padCx) < padW * 0.52 &&
-      Math.abs(z - padCz) < padD * 0.52
-    ) {
-      // Soft pad flatten — keep slight DEM so boundaries don't clip cliffs
-      h *= 0.12;
-    }
-    pos.setY(i, h);
+    pos.setY(i, groundY(x, z, dem, plantId, groundOpts));
   }
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, grassMat(textures));
@@ -140,22 +249,20 @@ export function buildTerrainGround(
   mesh.name = 'terrain-ground';
   group.add(mesh);
 
-  // Site pad (asphalt / gravel yard) — placed at GIS pad centre when available
+  // Site pad (asphalt / gravel yard) — shared datum + slight lift so Z-fight-free
+  const padLift = 0.06;
   const pad = new THREE.Mesh(new THREE.PlaneGeometry(padW, padD), asphaltMat(textures));
   pad.rotation.x = -Math.PI / 2;
-  pad.position.set(padCx, 0.08, padCz);
+  pad.position.set(padCx, padGrade + padLift, padCz);
   pad.receiveShadow = true;
   pad.name = 'site-pad';
+  group.userData.padGrade = padGrade;
   group.add(pad);
 
-  return group;
+  return { group, padGrade };
 }
 
 export function demFromGeoPack(pack: PlantGeoPack | null): DemData | null {
   if (!pack?.dem) return null;
   return pack.dem;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }

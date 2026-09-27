@@ -44,15 +44,16 @@
   },
   {
     "id": "kitchener",
-    "osmReal": 584,
+    "osmReal": 479,
     "thin": false,
+    "totalFeatures": 479,
     "dem": "procedural noise (seeded by plant id)",
     "kinds": {
-      "road": 280,
-      "water": 24,
+      "road": 220,
+      "water": 23,
       "waterway": 18,
-      "building": 220,
-      "landuse": 40,
+      "building": 180,
+      "landuse": 36,
       "wwtp": 1,
       "farm": 1
     }

@@ -1,4 +1,4 @@
-# WWTP-NA v0.3.0
+# WWTP-NA v0.3.9
 
 **North American wastewater / onsite sewage operator-training simulator** (browser-first).
 
@@ -42,7 +42,16 @@ The menu loads **every** entry in `src/data/plants.json` dynamically (sorted mic
 
 See `docs/research-plants.md` and each plant’s `sources` in JSON.
 
-## What’s in v0.3.0
+## What’s in v0.3.9
+
+- **Zoom / bird’s-eye** — orbit distance max raised to 600 so Waterloo/Kitchener GIS pads fit in the V-key bird’s-eye / nadir cycle.
+- **True footprint basins** — extrude OSM rings (not AABB×0.92 boxes) so aeration meshes match area; Kitchener rectangular primaries; Waterloo twin aeration split when OSM merges tanks.
+- **Uncapped GIS pad** — asphalt yard tracks real WWTP footprint (e.g. Kitchener ~746×485); headworks/UV/solids park on pad margins instead of hardcoded ±45/55 m.
+- **Corner minimap** — pad + units + frustum wedge + click-pan (separate from layout overlay).
+- **HoverTip live tags** — feeds SimState (DO/MLSS/flows); soft-pick for more prevalent tips; pipe flow chevrons.
+- **Bake** — denser per-kind caps, Kitchener bad-water denylist; DEM rebake prefers Open-Meteo (falls back if rate-limited).
+
+## What’s in v0.3.0 (still)
 
 - **Z — Autopilot on/off** — toggles SCADA Autopilot; synced with SCADA checkbox + HUD badge (ignored while typing in inputs).
 - **GIS footprint snap (P0)** — Waterloo + Kitchener (and any plant with enough on-site OSM water polygons) place clarifiers / aeration basins on real bake footprints at plausible metres-scale, not schematic toys on pavement.
@@ -67,6 +76,7 @@ See `docs/research-plants.md` and each plant’s `sources` in JSON.
 
 - **Full Cesium globe** — `npm` Cesium dependency, dual-canvas WGS84 ↔ ENU sync, Ion world imagery as ground context (scaffold only in 0.3).
 - Richer GIS snap for Galt / Woodward / Ashbridges when bake water footprints are sparse.
+- Kitchener Open-Meteo DEM when API is not rate-limited (bake currently may fall back to procedural).
 - Finer OSM process tagging (named tanks) when available — still no Street View / Apple Maps scrape.
 
 ## Attributions

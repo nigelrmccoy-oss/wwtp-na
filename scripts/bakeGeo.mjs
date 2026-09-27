@@ -11,7 +11,7 @@ const root = path.join(__dirname, '..');
 const outDir = path.join(root, 'public', 'geo');
 fs.mkdirSync(outDir, { recursive: true });
 
-const UA = 'wwtp-na-bake/0.2 (training sim; https://github.com/nigelrmccoy-oss/wwtp-na)';
+const UA = 'wwtp-na-bake/0.3.9 (training sim; https://github.com/nigelrmccoy-oss/wwtp-na)';
 const plants = JSON.parse(fs.readFileSync(path.join(root, 'src/data/plants.json'), 'utf8')).plants;
 const RADIUS_M = 1200;
 
@@ -109,19 +109,51 @@ function osmToGeoJSON(osm, originLat, originLon) {
       geometry,
     });
   }
-  // Cap features to keep files reasonable — prioritize wwtp, roads, buildings, water, farm
-  // Balanced per-kind caps (roads must not crowd out buildings)
-  const caps = { wwtp: 10, building: 220, water: 40, waterway: 40, farm: 60, landuse: 40, road: 280, other: 20 };
+  // Cap features to keep files reasonable — prioritize wwtp, water, buildings, roads, farm
+  // v0.3.9: bake density caps (roads must not crowd out buildings / process water)
+  const caps = { wwtp: 8, building: 180, water: 36, waterway: 32, farm: 50, landuse: 36, road: 220, other: 16 };
   const byKind = {};
   for (const f of features) {
     const k = f.properties.kind;
     (byKind[k] ||= []).push(f);
   }
+  // Prefer water/buildings nearer origin when over cap
+  const dist2 = (f) => {
+    const g = f.geometry;
+    let cx = 0, cz = 0, n = 0;
+    const coords = g.type === 'Polygon' ? g.coordinates[0] : g.coordinates;
+    for (const p of coords) { cx += p[0]; cz += p[1]; n++; }
+    if (!n) return 1e12;
+    cx /= n; cz /= n;
+    return cx * cx + cz * cz;
+  };
   const out = [];
   for (const [k, arr] of Object.entries(byKind)) {
-    out.push(...arr.slice(0, caps[k] ?? 20));
+    const cap = caps[k] ?? 20;
+    const sorted = [...arr].sort((a, b) => dist2(a) - dist2(b));
+    out.push(...sorted.slice(0, cap));
   }
   return { type: 'FeatureCollection', features: out };
+}
+
+/** Known-bad KIT (and peer) water polys — drop before write. Centroid in bake metres. */
+const WATER_DENYLIST = {
+  kitchener: [{ cx: 323.5, cz: 165.1, tol: 12 }],
+};
+
+function applyWaterDenylist(plantId, geojson) {
+  const list = WATER_DENYLIST[plantId];
+  if (!list) return geojson;
+  geojson.features = geojson.features.filter((f) => {
+    if (f.properties.kind !== 'water' && f.properties.kind !== 'waterway') return true;
+    if (f.geometry.type !== 'Polygon') return true;
+    const ring = f.geometry.coordinates[0];
+    let cx = 0, cz = 0, n = Math.max(1, ring.length - 1);
+    for (let i = 0; i < n; i++) { cx += ring[i][0]; cz += ring[i][1]; }
+    cx /= n; cz /= n;
+    return !list.some((d) => Math.hypot(cx - d.cx, cz - d.cz) <= (d.tol ?? 15));
+  });
+  return geojson;
 }
 
 async function fetchOsm(lat, lon) {
@@ -307,17 +339,28 @@ async function bakeOne(plant) {
     console.log('  + synthetic fallback', synth.length, 'features', isSeptic && !nearSite ? '(empty near-site)' : '');
   }
 
+  osmFeatures = applyWaterDenylist(plant.id, osmFeatures);
+
   const { pts, n, halfM } = sampleGrid(lat, lon, 1.2, 13);
   let elev = null;
   let demSource = 'procedural noise (seeded by plant id)';
-  try {
-    elev = await fetchElevationBatched(pts);
-    demSource = 'Open-Meteo elevation API';
-    console.log('  DEM', elev.length, 'min/max', Math.min(...elev).toFixed(1), Math.max(...elev).toFixed(1));
-  } catch (e) {
-    console.warn('  DEM fail', e.message);
+  // Kitchener previously fell back to procedural — prefer real DEM (retry once)
+  const demAttempts = plant.id === 'kitchener' ? 2 : 1;
+  for (let attempt = 0; attempt < demAttempts; attempt++) {
+    try {
+      elev = await fetchElevationBatched(pts);
+      demSource = 'Open-Meteo elevation API';
+      console.log('  DEM', elev.length, 'min/max', Math.min(...elev).toFixed(1), Math.max(...elev).toFixed(1));
+      break;
+    } catch (e) {
+      console.warn('  DEM fail', e.message, attempt + 1, '/', demAttempts);
+      if (attempt + 1 < demAttempts) await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  if (!elev) {
     const seed = hashSeed(plant.id);
     elev = pts.map((p) => 280 + noiseHeight(p.x, p.z, seed));
+    demSource = 'procedural noise (seeded by plant id)';
   }
   const mid = elev[Math.floor(elev.length / 2)];
   const dem = {
@@ -350,17 +393,37 @@ async function bakeOne(plant) {
   return out;
 }
 
-const summary = [];
-for (const p of plants) {
+const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const todo = only.length ? plants.filter((p) => only.includes(p.id)) : plants;
+if (only.length && !todo.length) {
+  console.error('No matching plant ids', only);
+  process.exit(1);
+}
+
+const summaryPath = path.join(outDir, '_bake-summary.json');
+let summary = [];
+try { summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8')); } catch { /* fresh */ }
+if (!Array.isArray(summary)) summary = [];
+
+for (const p of todo) {
   const o = await bakeOne(p);
-  summary.push({
+  const kinds = {};
+  for (const f of o.geojson.features) {
+    const k = f.properties.kind || 'other';
+    kinds[k] = (kinds[k] || 0) + 1;
+  }
+  const row = {
     id: p.id,
     osmReal: o.osmFeatureCount,
     thin: o.osmThin,
     totalFeatures: o.geojson.features.length,
     dem: o.dem.source,
-  });
+    kinds,
+  };
+  const ix = summary.findIndex((s) => s.id === p.id);
+  if (ix >= 0) summary[ix] = row;
+  else summary.push(row);
   await new Promise((r) => setTimeout(r, 2500));
 }
-fs.writeFileSync(path.join(outDir, '_bake-summary.json'), JSON.stringify(summary, null, 2));
+fs.writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));

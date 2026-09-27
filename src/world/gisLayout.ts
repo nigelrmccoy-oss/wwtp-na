@@ -106,7 +106,7 @@ function majorAxisYaw(ring: number[][]): number {
   return 0.5 * Math.atan2(2 * xz, xx - zz);
 }
 
-function classifyFootprint(ring: number[][]): FootprintRing | null {
+export function classifyFootprint(ring: number[][]): FootprintRing | null {
   if (ring.length < 3) return null;
   const area = polygonArea(ring);
   if (area < 80 || area > 80000) return null;

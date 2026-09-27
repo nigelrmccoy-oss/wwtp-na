@@ -11,7 +11,7 @@ const root = path.join(__dirname, '..');
 const outDir = path.join(root, 'public', 'geo');
 fs.mkdirSync(outDir, { recursive: true });
 
-const UA = 'wwtp-na-bake/0.3.9 (training sim; https://github.com/nigelrmccoy-oss/wwtp-na)';
+const UA = 'wwtp-na-bake/0.3.10 (training sim; https://github.com/nigelrmccoy-oss/wwtp-na)';
 const plants = JSON.parse(fs.readFileSync(path.join(root, 'src/data/plants.json'), 'utf8')).plants;
 const RADIUS_M = 1200;
 
@@ -111,7 +111,8 @@ function osmToGeoJSON(osm, originLat, originLon) {
   }
   // Cap features to keep files reasonable — prioritize wwtp, water, buildings, roads, farm
   // v0.3.9: bake density caps (roads must not crowd out buildings / process water)
-  const caps = { wwtp: 8, building: 180, water: 36, waterway: 32, farm: 50, landuse: 36, road: 220, other: 16 };
+  // v0.3.10: denser GTA-like surroundings (still capped for file size)
+  const caps = { wwtp: 8, building: 320, water: 48, waterway: 40, farm: 60, landuse: 48, road: 400, other: 20 };
   const byKind = {};
   for (const f of features) {
     const k = f.properties.kind;

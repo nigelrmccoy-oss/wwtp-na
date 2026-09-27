@@ -1,5 +1,5 @@
 /**
- * Three.js plant site scene — v0.3.9: GIS footprint extrude, zoom, chevrons, minimap hooks.
+ * Three.js plant site scene — v0.3.10: real-yard asphalt, true-ring walls, siteBounds cam.
  */
 import * as THREE from 'three';
 import type { PlantConfig } from '../sim/processModel';
@@ -22,6 +22,7 @@ import {
 } from './terrain';
 import { buildOsmSurroundings, type PlantGeoPack } from './osmBake';
 import { buildGisLayout, type FootprintRing, type GisLayoutResult, type GisUnitSnap } from './gisLayout';
+import { mountOrthoUnderlay } from './orthoLayer';
 
 export interface UnitInfo {
   id: string;
@@ -81,6 +82,8 @@ export class PlantScene {
   private textures: PlantTextures;
   private gis: GisLayoutResult | null = null;
   private dem: DemData | null = null;
+  private orthoDispose: (() => void) | null = null;
+  orthoAttribution = '';
   private padGrade = 0;
   private terrainOpts: TerrainOpts = { padW: 110, padD: 80 };
   private readonly eyeHeight = 1.7;
@@ -172,6 +175,8 @@ export class PlantScene {
 
   dispose(): void {
     this.disposed = true;
+    this.orthoDispose?.();
+    this.orthoDispose = null;
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onResize);
     if (this.onKeyDown) window.removeEventListener('keydown', this.onKeyDown);
@@ -205,7 +210,8 @@ export class PlantScene {
     orbitDist: number;
     mode: 'orbit' | 'walk';
   } {
-    const pad = this.gis?.pad ?? {
+    // Minimap frames the full WWTP site when available; asphalt pad is process-only.
+    const site = this.gis?.siteBounds ?? this.gis?.pad ?? {
       cx: this.terrainOpts.padCx ?? 0,
       cz: this.terrainOpts.padCz ?? 0,
       w: this.terrainOpts.padW,
@@ -218,7 +224,7 @@ export class PlantScene {
         return { id: u.id, label: u.label, x: c.x, z: c.z };
       });
     return {
-      pad: { cx: pad.cx, cz: pad.cz, w: pad.w, d: pad.d },
+      pad: { cx: site.cx, cz: site.cz, w: site.w, d: site.d },
       units,
       target: { x: this.orbitTarget.x, z: this.orbitTarget.z },
       cam: { x: this.camera.position.x, z: this.camera.position.z },
@@ -284,7 +290,8 @@ export class PlantScene {
   cycleCameraView(): string {
     this.camCycle = ((this.camCycle + 1) % 3) as 0 | 1 | 2;
     const s = this.plant.layoutScale;
-    const span = this.gisUsed && this.gis?.pad ? Math.max(this.gis.pad.w, this.gis.pad.d) : 55 + 36 * s;
+    const frame = this.gis?.siteBounds ?? this.gis?.pad;
+    const span = this.gisUsed && frame ? Math.max(frame.w, frame.d) : 55 + 36 * s;
     if (this.camCycle === 0) {
       this.mode = 'orbit';
       this.pitch = -0.92;
@@ -357,10 +364,14 @@ export class PlantScene {
       (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) *
       this.plant.layoutScale;
 
+    // Asphalt = process yard only; siteBounds = full WWTP (camera / minimap / context).
     const padW = this.gis.pad?.w ?? schematicPadW;
     const padD = this.gis.pad?.d ?? schematicPadD;
     const padCx = this.gis.pad?.cx ?? 0;
     const padCz = this.gis.pad?.cz ?? 0;
+    const siteW = this.gis.siteBounds?.w ?? padW;
+    const siteD = this.gis.siteBounds?.d ?? padD;
+    const terrainSizeM = Math.max(1500, Math.min(2000, Math.max(siteW, siteD) * 2.4 + 400));
 
     const dem = demFromGeoPack(geo);
     this.dem = dem;
@@ -373,8 +384,9 @@ export class PlantScene {
       padCz,
       waterMasks: this.gis.waterMasks,
       flattenPad: true,
-      padSkirtM: 15,
+      padSkirtM: 18,
       padGrade,
+      terrainSizeM,
     };
     const terrain = buildTerrainGround(this.plant.id, dem, this.textures, this.terrainOpts);
     this.root.add(terrain.group);
@@ -384,6 +396,9 @@ export class PlantScene {
 
     const osm = buildOsmSurroundings(geo, this.textures, this.plant.id, {
       terrain: this.terrainOpts,
+      processYard: { cx: padCx, cz: padCz, w: padW, d: padD },
+      maxBuildings: 320,
+      maxRoads: 400,
     });
     this.attribution = osm.attribution;
     this.demSource = geo?.dem?.source || geo?.attribution?.dem || osm.attribution;
@@ -400,6 +415,31 @@ export class PlantScene {
 
     for (const h of osm.hoverables) {
       this.units.push({ id: h.id, label: h.label, mesh: h.mesh });
+    }
+
+    // Tiles-lite attributed ortho under/around site (Esri / custom URL; never Google/Apple/SV)
+    if (geo?.origin) {
+      const frame = this.gis?.siteBounds ?? this.gis?.pad;
+      const half = Math.max(
+        400,
+        ((frame?.w ?? padW) + (frame?.d ?? padD)) * 0.55,
+      );
+      void mountOrthoUnderlay({
+        origin: geo.origin,
+        cx: frame?.cx ?? padCx,
+        cz: frame?.cz ?? padCz,
+        halfExtentM: Math.min(900, half),
+        y: padGrade,
+        host: document.getElementById('app'),
+      }).then((ortho) => {
+        if (this.disposed) {
+          ortho.dispose();
+          return;
+        }
+        this.root.add(ortho.group);
+        this.orthoDispose = ortho.dispose;
+        this.orthoAttribution = ortho.attribution;
+      });
     }
   }
 
@@ -431,12 +471,14 @@ export class PlantScene {
       this.addOutfall(gis.outfallHint.x, gis.outfallHint.z, gis.outfallHint.yaw);
     }
 
-    if (gis.pad) {
-      this.orbitTarget.set(gis.pad.cx, this.padGrade, gis.pad.cz);
-      const wx = gis.pad.cx + 40;
-      const wz = gis.pad.cz + 55;
+    const frame = gis.siteBounds ?? gis.pad;
+    if (frame) {
+      this.orbitTarget.set(frame.cx, this.padGrade, frame.cz);
+      const asphalt = gis.pad ?? frame;
+      const wx = asphalt.cx + Math.min(40, asphalt.w * 0.15);
+      const wz = asphalt.cz + Math.min(55, asphalt.d * 0.2);
       this.walkPos.set(wx, this.sampleEyeY(wx, wz), wz);
-      this.orbitDist = clamp(Math.max(gis.pad.w, gis.pad.d) * 0.85, 40, 600);
+      this.orbitDist = clamp(Math.max(frame.w, frame.d) * 0.85, 40, 600);
       this.pitch = -0.85;
     }
   }
@@ -578,7 +620,8 @@ export class PlantScene {
 
   /**
    * Extrude a basin from the real FootprintRing polygon (local to snap group).
-   * Falls back to OBB box if the ring is degenerate.
+   * True-ring walls follow the OSM perimeter (edge tubes) — no OBB box frames.
+   * Falls back to rectangular open basin only if the ring is degenerate.
    */
   private addFootprintBasin(
     group: THREE.Group,
@@ -598,7 +641,7 @@ export class PlantScene {
       return;
     }
 
-    // Floor slab
+    // Floor slab — true ring
     const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.25, bevelEnabled: false, curveSegments: 2 });
     floorGeo.rotateX(-Math.PI / 2);
     const floor = new THREE.Mesh(floorGeo, this.mats.concrete);
@@ -607,33 +650,8 @@ export class PlantScene {
     floor.userData.unitId = unitId;
     g.add(floor);
 
-    // Wall shell via outer ring extruded, then we'll add water inset
-    const wallShape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw);
-    if (wallShape) {
-      // Approximate walls: OBB walls oriented to footprint yaw (relative)
-      const yawLocal = fp.yaw - snapYaw;
-      const walls = new THREE.Group();
-      walls.rotation.y = yawLocal;
-      const w = fp.obbWidth;
-      const d = fp.obbDepth;
-      const t = 0.45;
-      const wallMat = this.mats.weathered;
-      const specs: [number, number, number, number, number, number][] = [
-        [w, h, t, 0, h / 2, d / 2],
-        [w, h, t, 0, h / 2, -d / 2],
-        [t, h, d, w / 2, h / 2, 0],
-        [t, h, d, -w / 2, h / 2, 0],
-      ];
-      for (const [bw, bh, bd, x, y, z] of specs) {
-        const wall = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), wallMat);
-        wall.position.set(x, y, z);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        wall.userData.unitId = unitId;
-        walls.add(wall);
-      }
-      g.add(walls);
-    }
+    // True-ring walls: edge tubes along the footprint perimeter (kill OBB dual-mesh frames)
+    this.addRingWalls(g, fp.ring, fp.cx, fp.cz, snapYaw, h, unitId);
 
     const waterH = h * 0.72;
     const waterShape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw, 0.92);
@@ -657,7 +675,7 @@ export class PlantScene {
       g.add(surface);
     }
 
-    // Diffuser baffle hints along OBB
+    // Diffuser baffle hints along OBB (interior only — not walls)
     const yawLocal = fp.yaw - snapYaw;
     const baffles = new THREE.Group();
     baffles.rotation.y = yawLocal;
@@ -673,6 +691,46 @@ export class PlantScene {
     g.add(baffles);
 
     group.add(g);
+  }
+
+  /** Perimeter wall segments following an OSM ring (local to footprint group). */
+  private addRingWalls(
+    parent: THREE.Group,
+    ring: number[][],
+    cx: number,
+    cz: number,
+    snapYaw: number,
+    h: number,
+    unitId: string,
+  ): void {
+    const cos = Math.cos(-snapYaw);
+    const sin = Math.sin(-snapYaw);
+    const n =
+      ring.length -
+      (ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0);
+    if (n < 3) return;
+    const t = 0.45;
+    const wallMat = this.mats.weathered;
+    const toLocal = (x: number, z: number) => {
+      const dx = x - cx;
+      const dz = z - cz;
+      return { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
+    };
+    for (let i = 0; i < n; i++) {
+      const a = toLocal(ring[i][0], ring[i][1]);
+      const b = toLocal(ring[(i + 1) % n][0], ring[(i + 1) % n][1]);
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.4) continue;
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, len + t * 0.5), wallMat);
+      wall.position.set((a.x + b.x) / 2, h / 2, (a.z + b.z) / 2);
+      wall.rotation.y = Math.atan2(dx, dz);
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      wall.userData.unitId = unitId;
+      parent.add(wall);
+    }
   }
 
   private addOpenBasin(

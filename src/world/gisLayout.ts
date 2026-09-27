@@ -4,6 +4,7 @@
  *
  * Prioritises Waterloo + Kitchener where schematic trains previously sat on
  * pavement beside the real clarifier / aeration footprints.
+ * v0.3.10: asphalt = process yard only; siteBounds = full WWTP; true OSM basins.
  */
 import type { GeoFeature, PlantGeoPack } from './osmBake';
 
@@ -43,7 +44,13 @@ export interface GisUnitSnap {
 export interface GisLayoutResult {
   used: boolean;
   snaps: GisUnitSnap[];
+  /**
+   * Asphalt process yard only — process footprint AABB ∪ headworks/UV/solids + ~50 m margin.
+   * Not the full WWTP landuse polygon (that is siteBounds).
+   */
   pad: { cx: number; cz: number; w: number; d: number; yaw: number } | null;
+  /** Full WWTP amenity footprint (grass/gravel/landuse context; camera/minimap). */
+  siteBounds: { cx: number; cz: number; w: number; d: number } | null;
   /** Natural waterway/pond rings for terrain carve (excludes process basins/clarifiers). */
   waterMasks: FootprintRing[];
   outfallHint: { x: number; z: number; yaw: number } | null;
@@ -259,42 +266,106 @@ function splitBasinAlongMajor(fp: FootprintRing, n: number): FootprintRing[] {
   return out;
 }
 
-/** Hand rectangular primary clarifiers for Kitchener (OSM only has circular tanks). */
-function kitchenerRectPrimaries(pad: { cx: number; cz: number }, aerationHint: FootprintRing | null): FootprintRing[] {
-  // West of aeration cluster — four 45×18 m rectangles (illustrative of Phase 3 primaries)
-  const baseX = aerationHint ? aerationHint.cx - Math.max(90, aerationHint.obbWidth * 0.55) : pad.cx - 160;
-  const baseZ = aerationHint ? aerationHint.cz : pad.cz - 20;
-  const yaw = aerationHint?.yaw ?? 0;
+function aabbOfRing(fp: FootprintRing, margin = 0): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const b = bbox(fp.ring);
+  return {
+    minX: b.minX - margin,
+    maxX: b.maxX + margin,
+    minZ: b.minZ - margin,
+    maxZ: b.maxZ + margin,
+  };
+}
+
+function aabbOverlap(
+  a: { minX: number; maxX: number; minZ: number; maxZ: number },
+  b: { minX: number; maxX: number; minZ: number; maxZ: number },
+): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
+}
+
+function footprintCollides(candidate: FootprintRing, blockers: FootprintRing[], margin = 8): boolean {
+  const ca = aabbOfRing(candidate, margin);
+  return blockers.some((b) => aabbOverlap(ca, aabbOfRing(b, 0)));
+}
+
+function makeRectBasin(cx: number, cz: number, hw: number, hd: number, yaw: number): FootprintRing {
   const cos = Math.cos(yaw);
   const sin = Math.sin(yaw);
+  const local = [
+    [-hw, -hd],
+    [hw, -hd],
+    [hw, hd],
+    [-hw, hd],
+    [-hw, -hd],
+  ];
+  const ring = local.map(([u0, v0]) => [cx + cos * u0 - sin * v0, cz + sin * u0 + cos * v0]);
+  return {
+    ring,
+    cx,
+    cz,
+    area: hw * 2 * hd * 2,
+    width: hw * 2,
+    depth: hd * 2,
+    obbWidth: hw * 2,
+    obbDepth: hd * 2,
+    circularity: 0.35,
+    yaw,
+    kind: 'basin',
+  };
+}
+
+/**
+ * Hand rectangular primary clarifiers for Kitchener (OSM only has circular tanks).
+ * Place west of the western aeration edge with AABB collision checks (no overlap).
+ */
+function kitchenerRectPrimaries(
+  site: { cx: number; cz: number },
+  aerationFs: FootprintRing[],
+  count = 4,
+): FootprintRing[] {
+  const yaw = aerationFs.length ? meanYaw(aerationFs) : 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  // Anchor west of the westernmost aeration AABB (not the largest/east basin).
+  let westEdge = site.cx - 160;
+  let midZ = site.cz - 20;
+  if (aerationFs.length) {
+    westEdge = Math.min(...aerationFs.map((f) => aabbOfRing(f).minX));
+    midZ = aerationFs.reduce((s, f) => s + f.cz, 0) / aerationFs.length;
+  }
+  const hw = 22.5;
+  const hd = 9;
+  const spacing = 22;
   const out: FootprintRing[] = [];
-  for (let i = 0; i < 4; i++) {
-    const along = (i - 1.5) * 22;
-    const cx = baseX + -sin * along;
-    const cz = baseZ + cos * along;
-    const hw = 22.5;
-    const hd = 9;
-    const local = [
-      [-hw, -hd],
-      [hw, -hd],
-      [hw, hd],
-      [-hw, hd],
-      [-hw, -hd],
-    ];
-    const ring = local.map(([u0, v0]) => [cx + cos * u0 - sin * v0, cz + sin * u0 + cos * v0]);
-    out.push({
-      ring,
-      cx,
-      cz,
-      area: 45 * 18,
-      width: 45,
-      depth: 18,
-      obbWidth: 45,
-      obbDepth: 18,
-      circularity: 0.35,
-      yaw,
-      kind: 'basin',
-    });
+  // Try increasing westward offsets until the full bank clears aeration.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const gap = 28 + attempt * 18;
+    const baseX = westEdge - gap - hw;
+    const baseZ = midZ;
+    const trial: FootprintRing[] = [];
+    let ok = true;
+    for (let i = 0; i < count; i++) {
+      const along = (i - (count - 1) / 2) * spacing;
+      const cx = baseX + -sin * along;
+      const cz = baseZ + cos * along;
+      const fp = makeRectBasin(cx, cz, hw, hd, yaw);
+      if (footprintCollides(fp, aerationFs, 6)) {
+        ok = false;
+        break;
+      }
+      trial.push(fp);
+    }
+    if (ok && trial.length === count) {
+      out.push(...trial);
+      break;
+    }
+  }
+  if (!out.length) {
+    // Last resort: far west of site centre, still labelled as illustrative primaries.
+    for (let i = 0; i < count; i++) {
+      const along = (i - (count - 1) / 2) * spacing;
+      out.push(makeRectBasin(site.cx - 220 + -sin * along, site.cz + cos * along, hw, hd, yaw));
+    }
   }
   return out;
 }
@@ -321,6 +392,7 @@ export function buildGisLayout(
     used: false,
     snaps: [],
     pad: null,
+    siteBounds: null,
     waterMasks: [],
     outfallHint: null,
     pipingHints: [],
@@ -423,10 +495,14 @@ export function buildGisLayout(
     secondaryFs = clarifiers.slice(0, counts.secondary || clarifiers.length);
   }
 
-  // Aeration first so Kitchener hand-primaries can sit west of real basins
-  let aerationFs = basins.slice(0, Math.max(1, counts.aeration || basins.length));
-  // Waterloo (and similar): OSM often merges twin aeration tanks into one water poly
+  // Use real OSM basins — do NOT invent splits to force schematic aeration counts.
+  // Exception: Waterloo (and similar non-KIT) may merge twin tanks into one poly.
+  let aerationFs = basins.slice(0, Math.max(1, basins.length));
+  if (counts.aeration > 0) {
+    aerationFs = basins.slice(0, Math.max(1, Math.min(counts.aeration, basins.length)));
+  }
   if (
+    plantId !== 'kitchener' &&
     !counts.hasOxidationDitch &&
     counts.aeration > aerationFs.length &&
     aerationFs.length >= 1
@@ -437,10 +513,10 @@ export function buildGisLayout(
     aerationFs = [...rest, ...splitBasinAlongMajor(biggest, need - rest.length)];
   }
 
+  const siteCx = (bounds.minX + bounds.maxX) / 2;
+  const siteCz = (bounds.minZ + bounds.maxZ) / 2;
   if (kitRectPrimary) {
-    const padCx = (bounds.minX + bounds.maxX) / 2;
-    const padCz = (bounds.minZ + bounds.maxZ) / 2;
-    primaryFs = kitchenerRectPrimaries({ cx: padCx, cz: padCz }, aerationFs[0] ?? basins[0] ?? null);
+    primaryFs = kitchenerRectPrimaries({ cx: siteCx, cz: siteCz }, aerationFs.length ? aerationFs : basins);
   }
 
   if (primaryFs.length && counts.hasPrimary) {
@@ -505,28 +581,51 @@ export function buildGisLayout(
     });
   }
 
-  // Pad from WWTP footprint — uncap so Kitchener (~746×485) and peers keep real yard size
-  const padW = bounds.maxX - bounds.minX;
-  const padD = bounds.maxZ - bounds.minZ;
-  const pad = {
-    cx: (bounds.minX + bounds.maxX) / 2,
-    cz: (bounds.minZ + bounds.maxZ) / 2,
-    w: Math.max(80, padW * 0.98),
-    d: Math.max(60, padD * 0.98),
-    yaw: 0,
+  // Unused / standby clarifiers (e.g. KIT south ~885 m² tanks) — keep visible + labelled.
+  const usedClarKeys = new Set(
+    [...primaryFs, ...secondaryFs]
+      .filter((f) => f.circularity >= 0.7)
+      .map((f) => `${f.cx.toFixed(1)},${f.cz.toFixed(1)}`),
+  );
+  const unusedClar = clarifiers.filter((f) => !usedClarKeys.has(`${f.cx.toFixed(1)},${f.cz.toFixed(1)}`));
+  if (unusedClar.length) {
+    const c = centroidOf(unusedClar);
+    snaps.push({
+      id: 'clarifiers-standby',
+      label: `Clarifiers (standby · ${unusedClar.length})`,
+      kind: 'cyl',
+      x: c.x,
+      z: c.z,
+      yaw: meanYaw(unusedClar),
+      count: unusedClar.length,
+      radiusM: avgRadius(unusedClar),
+      footprints: unusedClar,
+    });
+  }
+
+  // Full WWTP amenity bounds — grass/gravel/landuse context (NOT asphalt).
+  const siteBounds = {
+    cx: siteCx,
+    cz: siteCz,
+    w: Math.max(80, (bounds.maxX - bounds.minX) * 0.98),
+    d: Math.max(60, (bounds.maxZ - bounds.minZ) * 0.98),
   };
 
-  // Headworks / UV / solids: park on pad margins (no hardcoded ±45/55 when GIS used)
-  const processPts = snaps.map((s) => ({ x: s.x, z: s.z }));
+  // Headworks / UV / solids: park beside the process cluster (not full WWTP corners).
+  const processPts = snaps.flatMap((s) =>
+    s.footprints.length
+      ? s.footprints.map((f) => ({ x: f.cx, z: f.cz }))
+      : [{ x: s.x, z: s.z }],
+  );
   if (processPts.length) {
     const xs = processPts.map((p) => p.x);
     const zs = processPts.map((p) => p.z);
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
-    const midZ = zs.reduce((a, b) => a + b, 0) / zs.length;
-    const marginX = Math.min(28, pad.w * 0.04);
-    const marginZ = Math.min(28, pad.d * 0.04);
-    const headX = Math.max(pad.cx - pad.w * 0.5 + 14, minX - marginX - 18);
+    const minZ = Math.min(...zs);
+    const maxZ = Math.max(...zs);
+    const midZ = (minZ + maxZ) / 2;
+    const headX = minX - 36;
     snaps.unshift({
       id: 'headworks',
       label: 'Headworks',
@@ -541,7 +640,7 @@ export function buildGisLayout(
     const sec = snaps.find((s) => s.id === 'secondary');
     const dx = sec ? sec.x : maxX;
     const dz = sec ? sec.z : midZ;
-    const disX = Math.min(pad.cx + pad.w * 0.5 - 14, dx + marginX + 22);
+    const disX = dx + 36;
     if (counts.disinfection === 'uv' && counts.uvBanks > 0) {
       snaps.push({
         id: 'disinfection',
@@ -566,26 +665,62 @@ export function buildGisLayout(
       });
     }
 
-    const solidsZ = Math.min(pad.cz + pad.d * 0.5 - 14, Math.max(...zs) + marginZ + 18);
     snaps.push({
       id: 'solids',
       label: 'Solids Handling',
       kind: 'rect',
       x: (minX + maxX) / 2,
-      z: solidsZ,
+      z: maxZ + 32,
       yaw: 0,
       count: 1,
       footprints: [],
     });
   }
 
+  // Asphalt = process footprint AABB ∪ headworks/UV/solids + ~50 m margin.
+  const asphaltPts: { x: number; z: number }[] = [];
+  for (const s of snaps) {
+    if (s.footprints.length) {
+      for (const f of s.footprints) {
+        const b = bbox(f.ring);
+        asphaltPts.push({ x: b.minX, z: b.minZ }, { x: b.maxX, z: b.maxZ });
+      }
+    } else {
+      // Rect / UV / solids footprints are schematic ~20–30 m boxes
+      const half = s.kind === 'uv' || s.kind === 'chlorine' ? 12 : 18;
+      asphaltPts.push(
+        { x: s.x - half, z: s.z - half },
+        { x: s.x + half, z: s.z + half },
+      );
+    }
+  }
+  const MARGIN = 50;
+  let pad: GisLayoutResult['pad'] = null;
+  if (asphaltPts.length) {
+    const minX = Math.min(...asphaltPts.map((p) => p.x)) - MARGIN;
+    const maxX = Math.max(...asphaltPts.map((p) => p.x)) + MARGIN;
+    const minZ = Math.min(...asphaltPts.map((p) => p.z)) - MARGIN;
+    const maxZ = Math.max(...asphaltPts.map((p) => p.z)) + MARGIN;
+    pad = {
+      cx: (minX + maxX) / 2,
+      cz: (minZ + maxZ) / 2,
+      w: Math.max(60, maxX - minX),
+      d: Math.max(50, maxZ - minZ),
+      yaw: 0,
+    };
+  } else {
+    pad = { cx: siteBounds.cx, cz: siteBounds.cz, w: Math.min(140, siteBounds.w * 0.35), d: Math.min(100, siteBounds.d * 0.35), yaw: 0 };
+  }
+
   // Outfall: prefer waterway tip near site, else east of disinfection
   let outfallHint: GisLayoutResult['outfallHint'] = null;
   if (waterwayTips.length) {
     const tip = waterwayTips.sort(
-      (a, b) => Math.hypot(a.x - pad.cx, a.z - pad.cz) - Math.hypot(b.x - pad.cx, b.z - pad.cz),
+      (a, b) =>
+        Math.hypot(a.x - siteBounds.cx, a.z - siteBounds.cz) -
+        Math.hypot(b.x - siteBounds.cx, b.z - siteBounds.cz),
     )[0];
-    outfallHint = { x: tip.x, z: tip.z, yaw: Math.atan2(tip.z - pad.cz, tip.x - pad.cx) };
+    outfallHint = { x: tip.x, z: tip.z, yaw: Math.atan2(tip.z - siteBounds.cz, tip.x - siteBounds.cx) };
   } else {
     const dis = snaps.find((s) => s.id === 'disinfection');
     if (dis) outfallHint = { x: dis.x + 40, z: dis.z, yaw: 0 };
@@ -598,11 +733,12 @@ export function buildGisLayout(
   if (outfallHint) chain.push({ x: outfallHint.x, z: outfallHint.z });
   const pipingHints = connectChain(chain);
 
-  const summary = `GIS snap · ${clarifiers.length} clarifier · ${basins.length} basin footprints`;
+  const summary = `GIS snap · ${clarifiers.length} clarifier (${unusedClar.length} standby) · ${aerationFs.length}/${basins.length} basin · asphalt ${pad.w.toFixed(0)}×${pad.d.toFixed(0)} m`;
   return {
     used: snaps.some((s) => s.footprints.length > 0),
     snaps,
     pad,
+    siteBounds,
     waterMasks,
     outfallHint,
     pipingHints,

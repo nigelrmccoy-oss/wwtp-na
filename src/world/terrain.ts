@@ -1,5 +1,5 @@
 /**
- * DEM / heightfield ground mesh for plant surroundings (v0.3 grade-lock).
+ * DEM / heightfield ground mesh for plant surroundings (v0.3.10 real-yard).
  * One shared groundY datum so grass, asphalt pad, process units, OSM, water,
  * and walk camera agree. Soft pad skirt; natural-waterway carve only.
  */
@@ -33,6 +33,8 @@ export interface TerrainOpts {
   padSkirtM?: number;
   /** Precomputed pad grade; computed from DEM mean under pad if omitted. */
   padGrade?: number;
+  /** Ground plane extent in metres (default 1800 — covers full WWTP site). */
+  terrainSizeM?: number;
 }
 
 export interface TerrainBuildResult {
@@ -225,8 +227,8 @@ export function buildTerrainGround(
   opts: TerrainOpts,
 ): TerrainBuildResult {
   const group = new THREE.Group();
-  const size = 360;
-  const seg = 128;
+  const size = opts.terrainSizeM ?? 1800;
+  const seg = size > 800 ? 160 : 128;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position as THREE.BufferAttribute;

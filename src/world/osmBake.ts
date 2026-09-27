@@ -230,7 +230,13 @@ export function buildOsmSurroundings(
   pack: PlantGeoPack | null,
   textures: PlantTextures,
   plantId: string,
-  opts?: { maxBuildings?: number; maxRoads?: number; terrain?: TerrainOpts },
+  opts?: {
+    maxBuildings?: number;
+    maxRoads?: number;
+    terrain?: TerrainOpts;
+    /** Asphalt / process yard — pad-relative hole + building skip (not origin ±55/±45). */
+    processYard?: { cx: number; cz: number; w: number; d: number };
+  },
 ): OsmBuildResult {
   const group = new THREE.Group();
   group.name = 'osm-surroundings';
@@ -252,8 +258,16 @@ export function buildOsmSurroundings(
   const dem = pack.dem;
   const terrainOpts: TerrainOpts = opts?.terrain ?? { padW: 110, padD: 80, padCx: 0, padCz: 0 };
   const gy = (x: number, z: number) => groundY(x, z, dem, plantId, terrainOpts);
-  const maxB = opts?.maxBuildings ?? 180;
-  const maxR = opts?.maxRoads ?? 220;
+  const maxB = opts?.maxBuildings ?? 320;
+  const maxR = opts?.maxRoads ?? 400;
+  const yard = opts?.processYard ?? {
+    cx: terrainOpts.padCx ?? 0,
+    cz: terrainOpts.padCz ?? 0,
+    w: terrainOpts.padW,
+    d: terrainOpts.padD,
+  };
+  const inYard = (x: number, z: number, margin = 0) =>
+    Math.abs(x - yard.cx) < yard.w * 0.5 + margin && Math.abs(z - yard.cz) < yard.d * 0.5 + margin;
   let bCount = 0;
   let rCount = 0;
 
@@ -278,28 +292,25 @@ export function buildOsmSurroundings(
       layoutYaw = majorAxisYaw(ring);
       const shape = ringToShape(ring);
       if (shape && polygonArea(ring) > 80) {
-        // Punch a hole over the playable process pad so giant OSM footprints
-        // do not hide / steal picks from the schematic train.
-        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-        for (const p of ring) {
-          minX = Math.min(minX, p[0]);
-          maxX = Math.max(maxX, p[0]);
-          minZ = Math.min(minZ, p[1]);
-          maxZ = Math.max(maxZ, p[1]);
-        }
-        const coversPad = minX < -25 && maxX > 25 && minZ < -20 && maxZ > 20;
-        if (coversPad) {
-          const hw = 62;
-          const hd = 52;
+        // Punch a pad-relative hole over the asphalt process cluster so the
+        // ~181k m² WWTP concrete slab does not cover basins / steal picks.
+        // Hole is in shape/world XZ (same frame as the ring), not origin-fixed ±62×±52.
+        const hw = Math.max(40, yard.w * 0.5 + 8);
+        const hd = Math.max(30, yard.d * 0.5 + 8);
+        const coversYard =
+          Math.abs(c.x - yard.cx) < yard.w ||
+          Math.abs(c.z - yard.cz) < yard.d ||
+          polygonArea(ring) > 20000;
+        if (coversYard) {
           const hole = new THREE.Path();
-          hole.moveTo(-hw, -hd);
-          hole.lineTo(hw, -hd);
-          hole.lineTo(hw, hd);
-          hole.lineTo(-hw, hd);
+          hole.moveTo(yard.cx - hw, yard.cz - hd);
+          hole.lineTo(yard.cx + hw, yard.cz - hd);
+          hole.lineTo(yard.cx + hw, yard.cz + hd);
+          hole.lineTo(yard.cx - hw, yard.cz + hd);
           hole.closePath();
           shape.holes.push(hole);
         }
-        // Flat footprint (no tall extrude) — context only, not a pick target
+        // Flat gravel/concrete landuse — NOT asphalt (asphalt is terrain process pad)
         const geo = new THREE.ShapeGeometry(shape);
         geo.rotateX(-Math.PI / 2);
         const mesh = new THREE.Mesh(geo, wwtpMat);
@@ -308,7 +319,6 @@ export function buildOsmSurroundings(
         mesh.receiveShadow = true;
         mesh.raycast = () => {};
         group.add(mesh);
-        // Intentionally not hoverable — process units must win over OSM slabs
       }
       continue;
     }
@@ -323,15 +333,9 @@ export function buildOsmSurroundings(
       const levels = f.properties.levels && f.properties.levels > 0 ? f.properties.levels : 1;
       const depth = kind === 'farm' ? 0.15 : Math.min(14, 2.6 + levels * 2.4);
       const c = centroid(ring);
-      // Skip dense buildings on the process pad (keep playable train clear).
+      // Skip dense buildings on the asphalt process yard (pad-relative, not origin ±55/±45).
       // Synthetic farmstead props (barn/shed) are allowed near the Class 4 site.
-      if (
-        Math.abs(c.x) < 55 &&
-        Math.abs(c.z) < 45 &&
-        kind === 'building' &&
-        !f.properties.synthetic
-      )
-        continue;
+      if (kind === 'building' && !f.properties.synthetic && inYard(c.x, c.z, 6)) continue;
 
       if (kind === 'farm') {
         const shape2 = ringToShape(ring);
@@ -388,17 +392,8 @@ export function buildOsmSurroundings(
       const fp = classifyFootprint(ring);
       if (!fp || fp.kind !== 'other') continue;
       const c = centroid(ring);
-      const padCx = terrainOpts.padCx ?? 0;
-      const padCz = terrainOpts.padCz ?? 0;
-      const padW = terrainOpts.padW;
-      const padD = terrainOpts.padD;
-      const margin = 8;
-      // Punch-out: any water whose centroid sits on the process pad.
-      if (
-        Math.abs(c.x - padCx) < padW * 0.5 + margin &&
-        Math.abs(c.z - padCz) < padD * 0.5 + margin
-      )
-        continue;
+      // Punch-out: natural water whose centroid sits on the asphalt process yard.
+      if (inYard(c.x, c.z, 8)) continue;
       const shape = ringToShape(ring);
       if (!shape) continue;
       const geo = new THREE.ShapeGeometry(shape);
@@ -423,10 +418,10 @@ export function buildOsmSurroundings(
         const dz = z1 - z0;
         const len = Math.hypot(dx, dz);
         if (len < 1.5) continue;
-        // Skip roads cutting through process pad center
+        // Skip roads cutting through asphalt process yard (pad-relative)
         const mx = (x0 + x1) / 2;
         const mz = (z0 + z1) / 2;
-        if (Math.abs(mx) < 35 && Math.abs(mz) < 28) continue;
+        if (inYard(mx, mz, -4)) continue;
         const h = gy(mx, mz);
         const seg = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, len), asphalt);
         seg.position.set(mx, h + 0.12, mz);
@@ -440,8 +435,6 @@ export function buildOsmSurroundings(
 
     if (kind === 'waterway' && geom.type === 'LineString') {
       const coords = geom.coordinates as number[][];
-      const padCx = terrainOpts.padCx ?? 0;
-      const padCz = terrainOpts.padCz ?? 0;
       for (let i = 0; i < coords.length - 1; i++) {
         const [x0, z0] = coords[i];
         const [x1, z1] = coords[i + 1];
@@ -451,8 +444,8 @@ export function buildOsmSurroundings(
         if (len < 2) continue;
         const mx = (x0 + x1) / 2;
         const mz = (z0 + z1) / 2;
-        // Skip waterway segments cutting through process pad center
-        if (Math.abs(mx - padCx) < 35 && Math.abs(mz - padCz) < 28) continue;
+        // Skip waterway segments cutting through asphalt process yard
+        if (inYard(mx, mz, -4)) continue;
         const h = gy(mx, mz);
         const seg = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.08, len), waterM);
         seg.position.set(mx, h + 0.05, mz);

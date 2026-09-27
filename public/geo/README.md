@@ -8,3 +8,8 @@ Per-plant GeoJSON + elevation samples used by `src/world/osmBake.ts` and `src/wo
 - Rebake: `node scripts/bakeGeo.mjs` (requires network; sets a descriptive User-Agent).
 
 Do **not** scrape Street View or Apple Maps. Satellite imagery is not bundled.
+
+## v0.3.10 denser caps
+
+Bake caps raised (buildings ≤320, roads ≤400). Rebake: `node scripts/bakeGeo.mjs [plantId]`.
+DEM prefers Open-Meteo; falls back to procedural noise when rate-limited.

@@ -44,16 +44,16 @@
   },
   {
     "id": "kitchener",
-    "osmReal": 479,
+    "osmReal": 811,
     "thin": false,
-    "totalFeatures": 479,
-    "dem": "procedural noise (seeded by plant id)",
+    "totalFeatures": 811,
+    "dem": "Open-Meteo elevation API",
     "kinds": {
-      "road": 220,
+      "road": 400,
       "water": 23,
       "waterway": 18,
-      "building": 180,
-      "landuse": 36,
+      "building": 320,
+      "landuse": 48,
       "wwtp": 1,
       "farm": 1
     }

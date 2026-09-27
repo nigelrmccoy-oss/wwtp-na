@@ -1,4 +1,4 @@
-# WWTP-NA v0.3.9
+# WWTP-NA v0.3.10
 
 **North American wastewater / onsite sewage operator-training simulator** (browser-first).
 
@@ -42,6 +42,16 @@ The menu loads **every** entry in `src/data/plants.json` dynamically (sorted mic
 
 See `docs/research-plants.md` and each plant’s `sources` in JSON.
 
+## What’s in v0.3.10
+
+- **Asphalt ≠ WWTP bounds** — asphalt pad = process footprint AABB ∪ headworks/UV/solids + ~50 m margin; full WWTP amenity polygon is grass/gravel/landuse (`siteBounds` for camera/minimap).
+- **True-ring basin walls** — OSM perimeter edge tubes; OBB box wall frames removed (fixes nested white frames on KIT aeration).
+- **KIT real basins** — no `splitBasinAlongMajor` to force aeration count=4; hand rectangular primaries collision-checked vs aeration; unused south clarifiers meshed/labelled as standby.
+- **Pad-relative OSM** — WWTP slab hole + building/road skip use asphalt process yard (not origin ±62/±55 schematic).
+- **Terrain** — ground plane enlarged ~1500–2000 m to cover site.
+- **Ortho tiles-lite** — attributed Esri World Imagery underlay (optional `VITE_IMAGERY_URL`); Cesium Ion remains scaffold when token present. Never Google/Apple/Street View.
+- **Denser bake caps** — buildings/roads raised for GTA-like context.
+
 ## What’s in v0.3.9
 
 - **Zoom / bird’s-eye** — orbit distance max raised to 600 so Waterloo/Kitchener GIS pads fit in the V-key bird’s-eye / nadir cycle.
@@ -74,9 +84,9 @@ See `docs/research-plants.md` and each plant’s `sources` in JSON.
 
 ## Deferred / follow-ups
 
-- **Full Cesium globe** — `npm` Cesium dependency, dual-canvas WGS84 ↔ ENU sync, Ion world imagery as ground context (scaffold only in 0.3).
+- **Full Cesium globe** — `npm` Cesium dependency, dual-canvas WGS84 ↔ ENU sync, Ion world imagery as ground context (scaffold + Esri tiles-lite in 0.3.10).
 - Richer GIS snap for Galt / Woodward / Ashbridges when bake water footprints are sparse.
-- Kitchener Open-Meteo DEM when API is not rate-limited (bake currently may fall back to procedural).
+- Kitchener Open-Meteo DEM when API is not rate-limited (bake may still be procedural — see `public/geo/_bake-summary.json`).
 - Finer OSM process tagging (named tanks) when available — still no Street View / Apple Maps scrape.
 
 ## Attributions

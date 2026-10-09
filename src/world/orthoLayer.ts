@@ -21,6 +21,11 @@ export interface OrthoMountOpts {
   y: number;
   /** Optional host for attribution badge. */
   host?: HTMLElement | null;
+  /**
+   * Ground height sampler (scene ground datum). When given, tiles are draped onto the
+   * terrain (+lift, polygonOffset) instead of a flat plane that z-fights the grade.
+   */
+  heightAt?: (x: number, z: number) => number;
 }
 
 export interface OrthoMountResult {
@@ -158,13 +163,42 @@ export async function mountOrthoUnderlay(opts: OrthoMountOpts): Promise<OrthoMou
           const zS = -(lat0 - opts.origin.lat) * mLat;
           const w = Math.abs(xR - xL);
           const d = Math.abs(zS - zN);
-          const mesh = new THREE.Mesh(
-            new THREE.PlaneGeometry(w, d),
-            new THREE.MeshBasicMaterial({ map: tex, depthWrite: false, transparent: true, opacity: 0.92 }),
-          );
-          mesh.rotation.x = -Math.PI / 2;
-          mesh.position.set((xL + xR) / 2, opts.y - 0.05, (zN + zS) / 2);
-          mesh.renderOrder = -2;
+          let mesh: THREE.Mesh;
+          if (opts.heightAt) {
+            // Drape: subdivided tile following the ground datum, lifted and offset so it
+            // never z-fights terrain / pad (fixes the v0.3.10 Kitchener edge streaks).
+            const seg = 40;
+            const geo = new THREE.PlaneGeometry(w, d, seg, seg);
+            geo.rotateX(-Math.PI / 2);
+            const cxT = (xL + xR) / 2;
+            const czT = (zN + zS) / 2;
+            const pos = geo.attributes.position as THREE.BufferAttribute;
+            for (let i = 0; i < pos.count; i++) {
+              const x = pos.getX(i) + cxT;
+              const z = pos.getZ(i) + czT;
+              pos.setXYZ(i, x, opts.heightAt(x, z) + 0.3, z);
+            }
+            geo.computeBoundingSphere();
+            const mat = new THREE.MeshBasicMaterial({
+              map: tex,
+              toneMapped: false,
+              polygonOffset: true,
+              polygonOffsetFactor: -2,
+              polygonOffsetUnits: -4,
+            });
+            mesh = new THREE.Mesh(geo, mat);
+            mesh.name = 'ortho-drape-tile';
+            mesh.receiveShadow = false;
+          } else {
+            mesh = new THREE.Mesh(
+              new THREE.PlaneGeometry(w, d),
+              new THREE.MeshBasicMaterial({ map: tex, depthWrite: false, transparent: true, opacity: 0.92 }),
+            );
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set((xL + xR) / 2, opts.y - 0.05, (zN + zS) / 2);
+            mesh.renderOrder = -2;
+          }
+          mesh.raycast = () => {};
           group.add(mesh);
         } catch {
           // skip failed tile

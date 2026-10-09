@@ -89,10 +89,11 @@ export function waterMat(tex: PlantTextures, color = 0xffffff): THREE.MeshPhysic
     color,
     roughness: 0.12,
     metalness: 0.05,
-    transmission: 0.35,
-    thickness: 1.2,
+    // v0.3.11: transmission removed — it forced a full extra opaque render pass
+    // (~2× draw calls; Kitchener fell to ~35–41 FPS on an RX 580). Opacity carries the look.
+    transmission: 0,
     transparent: true,
-    opacity: 0.88,
+    opacity: 0.82,
     normalMap: tex.waterNormal,
     normalScale: new THREE.Vector2(0.45, 0.45),
     clearcoat: 0.55,

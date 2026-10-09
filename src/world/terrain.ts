@@ -252,8 +252,14 @@ export function buildTerrainGround(
   group.add(mesh);
 
   // Site pad (asphalt / gravel yard) — shared datum + slight lift so Z-fight-free
-  const padLift = 0.06;
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(padW, padD), asphaltMat(textures));
+  // v0.3.11: bigger lift + polygonOffset — 6 cm alone z-fought the grass at orbit range
+  // (near 0.5 m / far 2800 m ≈ 4 cm depth resolution at 600 m → KIT north-edge streaks).
+  const padLift = 0.12;
+  const padMat = asphaltMat(textures);
+  padMat.polygonOffset = true;
+  padMat.polygonOffsetFactor = -1;
+  padMat.polygonOffsetUnits = -2;
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(padW, padD), padMat);
   pad.rotation.x = -Math.PI / 2;
   pad.position.set(padCx, padGrade + padLift, padCz);
   pad.receiveShadow = true;

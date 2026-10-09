@@ -7,6 +7,49 @@ import type { PlantTextures } from './textures';
 import { asphaltMat, concreteMat, waterMat, grassMat } from './textures';
 import { groundY, type DemData, type TerrainOpts } from './terrain';
 import { classifyFootprint } from './gisLayout';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+/**
+ * Batches static, non-pickable OSM geometry per material into one mesh (v0.3.11 perf:
+ * Kitchener had ~2,750 separate road/water/building meshes → ~3k draw calls).
+ */
+class MergeBatch {
+  private parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  add(geo: THREE.BufferGeometry, mat: THREE.Material, matrix?: THREE.Matrix4): void {
+    let g = geo.index ? geo.toNonIndexed() : geo;
+    if (g !== geo) geo.dispose();
+    if (matrix) g.applyMatrix4(matrix);
+    // Keep a common attribute set so every part merges.
+    for (const name of Object.keys(g.attributes)) {
+      if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+    }
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) {
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array((g.attributes.position.count) * 2), 2));
+    }
+    g.clearGroups();
+    const list = this.parts.get(mat) ?? [];
+    list.push(g);
+    this.parts.set(mat, list);
+  }
+  flush(into: THREE.Object3D, opts: { castShadow?: boolean; receiveShadow?: boolean; name?: string; pickable?: boolean; tag?: string } = {}): void {
+    for (const [mat, geos] of this.parts) {
+      if (!geos.length) continue;
+      const merged = mergeGeometries(geos, false);
+      geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = !!opts.castShadow;
+      mesh.receiveShadow = opts.receiveShadow ?? true;
+      if (opts.name) mesh.name = opts.name;
+      if (opts.tag) mesh.userData[opts.tag] = true;
+      if (!opts.pickable) mesh.raycast = () => {};
+      into.add(mesh);
+    }
+    this.parts.clear();
+  }
+}
 
 export interface GeoFeatureProps {
   kind: string;
@@ -236,6 +279,8 @@ export function buildOsmSurroundings(
     terrain?: TerrainOpts;
     /** Asphalt / process yard — pad-relative hole + building skip (not origin ±55/±45). */
     processYard?: { cx: number; cz: number; w: number; d: number };
+    /** Ortho underlay frame: flat landuse/WWTP fills inside it are grouped so the scene can hide them once imagery loads. */
+    orthoFrame?: { cx: number; cz: number; half: number };
   },
 ): OsmBuildResult {
   const group = new THREE.Group();
@@ -280,6 +325,30 @@ export function buildOsmSurroundings(
   landMat.color = new THREE.Color(0x7a9a68);
   const waterM = waterMat(textures, 0x6aabcc);
   const asphalt = asphaltMat(textures);
+  // Opaque/cheap stand-in for OSM rivers/ponds (no transmission pass — v0.3.11 perf).
+  waterM.transmission = 0;
+
+  const roadsBatch = new MergeBatch();
+  const waterBatch = new MergeBatch();
+  const bldgBatch = new MergeBatch();
+  const fillBatch = new MergeBatch();
+  const fillOrthoBatch = new MergeBatch();
+  const ortho = opts?.orthoFrame;
+  /** Any part of the ring inside the imagery frame (flat fills there would cover the photo). */
+  const ringTouchesOrtho = (ring: number[][]) => {
+    if (!ortho) return false;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const [x, z] of ring) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    }
+    return maxX > ortho.cx - ortho.half && minX < ortho.cx + ortho.half && maxZ > ortho.cz - ortho.half && minZ < ortho.cz + ortho.half;
+  };
+  const roadsOrthoBatch = new MergeBatch();
+  const waterOrthoBatch = new MergeBatch();
+  const m4 = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const one = new THREE.Vector3(1, 1, 1);
 
   for (const f of pack.geojson.features) {
     const kind = f.properties.kind;
@@ -313,12 +382,9 @@ export function buildOsmSurroundings(
         // Flat gravel/concrete landuse — NOT asphalt (asphalt is terrain process pad)
         const geo = new THREE.ShapeGeometry(shape);
         geo.rotateX(-Math.PI / 2);
-        const mesh = new THREE.Mesh(geo, wwtpMat);
         const h = gy(c.x, c.z);
-        mesh.position.y = h + 0.03;
-        mesh.receiveShadow = true;
-        mesh.raycast = () => {};
-        group.add(mesh);
+        geo.translate(0, h + 0.03, 0);
+        (ringTouchesOrtho(ring) ? fillOrthoBatch : fillBatch).add(geo, wwtpMat);
       }
       continue;
     }
@@ -352,6 +418,13 @@ export function buildOsmSurroundings(
       const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
       geo.rotateX(-Math.PI / 2);
       const isBarn = /barn|farm|farm_auxiliary|shed/i.test(f.properties.building || '');
+      if (!f.properties.name && !isBarn) {
+        // Unnamed buildings are context only (never hover targets) → batched.
+        geo.translate(0, gy(c.x, c.z), 0);
+        bldgBatch.add(geo, buildingMat);
+        bCount++;
+        continue;
+      }
       const mesh = new THREE.Mesh(geo, isBarn ? barnMat : buildingMat);
       mesh.position.y = gy(c.x, c.z);
       mesh.castShadow = true;
@@ -377,10 +450,8 @@ export function buildOsmSurroundings(
       const geo = new THREE.ShapeGeometry(shape);
       geo.rotateX(-Math.PI / 2);
       const c = centroid(ring);
-      const mesh = new THREE.Mesh(geo, landMat);
-      mesh.position.y = gy(c.x, c.z) + 0.04;
-      mesh.receiveShadow = true;
-      group.add(mesh);
+      geo.translate(0, gy(c.x, c.z) + 0.04, 0);
+      (ringTouchesOrtho(ring) ? fillOrthoBatch : fillBatch).add(geo, landMat);
       continue;
     }
 
@@ -398,11 +469,9 @@ export function buildOsmSurroundings(
       if (!shape) continue;
       const geo = new THREE.ShapeGeometry(shape);
       geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, waterM);
       // Sit slightly above carved channel bottom (groundY already subtracts carve).
-      mesh.position.y = gy(c.x, c.z) + 0.12;
-      mesh.receiveShadow = true;
-      group.add(mesh);
+      geo.translate(0, gy(c.x, c.z) + 0.12, 0);
+      (ringTouchesOrtho(ring) ? waterOrthoBatch : waterBatch).add(geo, waterM);
       continue;
     }
 
@@ -423,11 +492,9 @@ export function buildOsmSurroundings(
         const mz = (z0 + z1) / 2;
         if (inYard(mx, mz, -4)) continue;
         const h = gy(mx, mz);
-        const seg = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, len), asphalt);
-        seg.position.set(mx, h + 0.12, mz);
-        seg.rotation.y = Math.atan2(dx, dz);
-        seg.receiveShadow = true;
-        group.add(seg);
+        q.setFromAxisAngle(up, Math.atan2(dx, dz));
+        m4.compose(new THREE.Vector3(mx, h + 0.12, mz), q, one);
+        (ringTouchesOrtho([[x0, z0], [x1, z1]]) ? roadsOrthoBatch : roadsBatch).add(new THREE.BoxGeometry(w, 0.1, len), asphalt, m4);
       }
       rCount++;
       continue;
@@ -447,13 +514,23 @@ export function buildOsmSurroundings(
         // Skip waterway segments cutting through asphalt process yard
         if (inYard(mx, mz, -4)) continue;
         const h = gy(mx, mz);
-        const seg = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.08, len), waterM);
-        seg.position.set(mx, h + 0.05, mz);
-        seg.rotation.y = Math.atan2(dx, dz);
-        group.add(seg);
+        q.setFromAxisAngle(up, Math.atan2(dx, dz));
+        m4.compose(new THREE.Vector3(mx, h + 0.05, mz), q, one);
+        (ringTouchesOrtho([[x0, z0], [x1, z1]]) ? waterOrthoBatch : waterBatch).add(new THREE.BoxGeometry(3.5, 0.08, len), waterM, m4);
       }
     }
   }
+
+  roadsBatch.flush(group, { name: 'osm-roads' });
+  waterBatch.flush(group, { name: 'osm-water' });
+  bldgBatch.flush(group, { name: 'osm-buildings', castShadow: true });
+  fillBatch.flush(group, { name: 'osm-fills' });
+  const fillsOrtho = new THREE.Group();
+  fillsOrtho.name = 'osm-fills-ortho';
+  fillOrthoBatch.flush(fillsOrtho, { name: 'osm-fills-ortho-mesh' });
+  roadsOrthoBatch.flush(fillsOrtho, { name: 'osm-roads-ortho' });
+  waterOrthoBatch.flush(fillsOrtho, { name: 'osm-water-ortho' });
+  group.add(fillsOrtho);
 
   return { group, hoverables, wwtpCentroid, layoutYaw, osmThin, attribution };
 }

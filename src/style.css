@@ -108,13 +108,17 @@ button:hover{filter:brightness(1.08)}
   height:1.1rem;line-height:1.1rem;padding:0 .35rem;margin:0;font-size:10px;font-weight:700;
   color:#9bb0c0;opacity:.9;overflow:hidden;white-space:nowrap;
 }
-/* Exactly 3 fixed-height rows (+ optional +N more); never scroll/clip inside the list */
+/* v0.3.11: 3 fixed-height rows visible; every further alarm reachable by scrolling */
 .alarm-list{
-  height:calc(3 * 1.35rem + 2 * 2px + 1.1rem);
-  max-height:calc(3 * 1.35rem + 2 * 2px + 1.1rem);
-  overflow:hidden;
+  height:calc(3 * 1.35rem + 2 * 2px + 2px);
+  max-height:calc(3 * 1.35rem + 2 * 2px + 2px);
+  overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
   display:flex;flex-direction:column;gap:2px;
+  scrollbar-width:thin;scrollbar-color:#4a6070 #0e141c;
 }
+.alarm-list::-webkit-scrollbar{width:6px}
+.alarm-list::-webkit-scrollbar-thumb{background:#4a6070;border-radius:3px}
+.alarm-count{font-size:10px;font-weight:600;color:#9bb0c0;margin-left:.35rem;text-transform:none;letter-spacing:0}
 
 .mode-badge{
   position:absolute;z-index:4;left:12px;top:12px;
@@ -419,3 +423,4 @@ button:hover{filter:brightness(1.08)}
   font-size:10.5px;line-height:1.35;color:#9dffc8;
 }
 .hover-tip{width:min(300px,72vw)}
+.hover-est{margin-top:.3rem;padding:.2rem .35rem;border:1px dashed #c9a640;color:#ffd666;font-size:11px;border-radius:2px}

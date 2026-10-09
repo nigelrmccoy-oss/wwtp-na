@@ -17,6 +17,7 @@ export class ScadaOverlay {
   private onOverlayToggle: ((on: boolean) => void) | null;
   private onAckAlarms: (() => void) | null;
   private lastAlarmIds: string[] = [];
+  private lastAlarmKey = '\u0000';
 
   constructor(
     host: HTMLElement,
@@ -171,19 +172,28 @@ export class ScadaOverlay {
 
     const alarmBox = this.el.querySelector('#alarmList') as HTMLElement;
     if (alarmBox) {
-      const MAX_VISIBLE = 3;
-      if (!state.alarms.length) {
-        alarmBox.innerHTML = `<div class="alarm-ok">No active alarms</div>`;
-      } else {
-        const shown = state.alarms.slice(0, MAX_VISIBLE);
-        const more = state.alarms.length - shown.length;
-        alarmBox.innerHTML =
-          shown
+      // v0.3.11: every active alarm is rendered and the list scrolls (3 rows visible).
+      // Only rebuild when the alarm set changes so the operator's scroll position survives ticks.
+      const key = state.alarms.map((a) => `${a.id}|${a.severity}|${a.message}`).join('\n');
+      if (key !== this.lastAlarmKey) {
+        this.lastAlarmKey = key;
+        const keepTop = alarmBox.scrollTop;
+        if (!state.alarms.length) {
+          alarmBox.innerHTML = `<div class="alarm-ok">No active alarms</div>`;
+        } else {
+          alarmBox.innerHTML = state.alarms
             .map(
               (a) =>
                 `<div class="alarm-row ${a.severity}" title="${a.message.replace(/"/g, '&quot;')}">${a.message}</div>`,
             )
-            .join('') + (more > 0 ? `<div class="alarm-more">+${more} more</div>` : '');
+            .join('');
+        }
+        alarmBox.scrollTop = keepTop;
+      }
+      const countEl = this.el.querySelector('#alarmCount');
+      if (countEl) {
+        const n = state.alarms.length;
+        countEl.textContent = n > 3 ? `${n} active · scroll ↕` : n ? `${n} active` : '';
       }
     }
 
@@ -311,7 +321,7 @@ export class ScadaOverlay {
         </div>
       </div>
       <div class="scada-alarms">
-        <div class="ctrl-head alarms-head">Alarms <button type="button" class="ack-btn" id="ackAlarms" title="Acknowledge (A)">ACK</button></div>
+        <div class="ctrl-head alarms-head">Alarms <span class="alarm-count" id="alarmCount"></span> <button type="button" class="ack-btn" id="ackAlarms" title="Acknowledge (A)">ACK</button></div>
         <div id="alarmList" class="alarm-list"></div>
       </div>
       <div class="status-strip" id="statusStrip">Shift 0:00 · NORMAL</div>

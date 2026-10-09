@@ -18,7 +18,7 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
 
   root.innerHTML = `
     <div class="panel menu-panel">
-      <h1>WWTP-NA <span class="ver">v0.3.0</span></h1>
+      <h1>WWTP-NA <span class="ver">v${__APP_VERSION__}</span></h1>
       <p class="sub">North American wastewater operator-training sim · Ontario corridor tribute</p>
       <p class="disclaimer">Training simulator — not affiliated with Region of Waterloo, City of Hamilton, City of Toronto, or OCWA. Capacities from public reports where cited; septic flows estimated from OBC/MOE guidance. Map data © OpenStreetMap contributors.</p>
       <label>Plant

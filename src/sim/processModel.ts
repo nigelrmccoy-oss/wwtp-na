@@ -64,6 +64,12 @@ function diurnalFactor(tSec: number): number {
 const OTR_AT_100 = 6.2;
 /** OUR base at MLSS=3000 mg/L and util=1.0 */
 const OUR_BASE = 2.15;
+/** Time constant for the rolling average-day capacity check (sim seconds). */
+const AVG_TAU_S = 2 * 3600;
+/** Effluent TP an in-control plant runs at: typical, but at least 20% under the ECA objective. */
+function healthyTp(p: PlantRuntime): number {
+  return p.ecaTpMgL != null ? Math.min(p.effluentTpMgL, p.ecaTpMgL * 0.8) : p.effluentTpMgL;
+}
 
 export class ProcessModel {
   readonly plant: PlantRuntime;
@@ -83,6 +89,9 @@ export class ProcessModel {
   private effluentTp: number;
   private noiseSeed = Math.random() * 1000;
   private pumpAlarm = false;
+  /** Rolling (~2 h sim) influent — ECA capacity is an average-day rating, so the
+   * "near capacity" WARN uses this instead of the instantaneous morning peak. */
+  private avgInfluentMld = 0;
   /** Alarm ids silenced until the condition clears (operator ACK). */
   private silencedAlarms = new Set<string>();
 
@@ -94,15 +103,16 @@ export class ProcessModel {
     this.effluentBod = plant.effluentBod;
     this.influentTp = plant.influentTpMgL;
     // Healthy default: meet ECA when typical effluent is higher (e.g. Kitchener post-tertiary obj).
-    this.effluentTp =
-      plant.ecaTpMgL != null ? Math.min(plant.effluentTpMgL, plant.ecaTpMgL) : plant.effluentTpMgL;
+    this.effluentTp = healthyTp(plant);
+    this.avgInfluentMld = plant.avgDayFlowMld;
     this.tankLevel = plant.research.scadaDefaults.tankLevelPct ?? 45;
 
     // Init blower so OTR ≈ OUR at avg-day util + default MLSS (healthy start).
     const mlssRatio = plant.isSeptic ? 0 : this.mlss / 3000;
     // Size blowers for ~1.25× avg-day (morning peak) so defaults stay healthy at shift start (08:00).
     const ourAtPeakish = mlssRatio * 1.25 * OUR_BASE;
-    const blowerForBalance = plant.isSeptic ? 0 : clamp((ourAtPeakish / OTR_AT_100) * 100 * 1.12, 48, 72);
+    // v0.3.11: no extra 12% blower headroom on top of the 1.25× peak sizing (it parked DO high).
+    const blowerForBalance = plant.isSeptic ? 0 : clamp((ourAtPeakish / OTR_AT_100) * 100, 48, 72);
 
     this.setpoints = {
       doTarget: plant.isSeptic ? 0 : plant.defaultDo,
@@ -253,7 +263,9 @@ export class ProcessModel {
     const our = (this.mlss / 3000) * ourLoad * OUR_BASE;
     const doError = sp.doTarget - this.doMgL;
     // Stronger trim when blowers are on; weak when starved (<20%).
-    const trimGain = 1.35 * clamp(sp.blowerPct / 50, 0.12, 1.4);
+    // v0.3.11: stronger trim (was 1.35) — defaults settle ≈2.0–2.1 mg/L (was ≈2.45); starved
+    // blowers (<20%) still crash DO into LOW alarm.
+    const trimGain = 3 * clamp(sp.blowerPct / 50, 0.12, 1.4);
     const autoTrim = doError * trimGain;
     // Dynamics tuned so defaults hold ~1.8–2.5 mg/L; mismanagement still alarms.
     this.doMgL = clamp(this.doMgL + (otr - our + autoTrim) * (dt / 60) * 0.55, 0.2, 8);
@@ -280,7 +292,8 @@ export class ProcessModel {
     const nominalDose = 40;
     const eca = p.ecaTpMgL;
     const typical = p.effluentTpMgL;
-    const healthy = eca != null ? Math.min(typical, eca) : typical;
+    const healthy = healthyTp(p);
+    void typical;
     const floor = eca != null ? Math.min(healthy * 0.5, eca * 0.45) : healthy * 0.5;
     const untreated = this.influentTp * 0.48; // bio-only ~52% TP removal
     let tpGoal: number;
@@ -310,6 +323,9 @@ export class ProcessModel {
     if (this.wetWellLevel > 92) effluent *= 1.02;
 
     const capacityUtilPct = (influent / p.designCapacityMld) * 100;
+    const avgK = clamp(dt / AVG_TAU_S, 0, 1);
+    this.avgInfluentMld += (influent - this.avgInfluentMld) * avgK;
+    const avgUtilPct = (this.avgInfluentMld / p.designCapacityMld) * 100;
     const alarms: Alarm[] = [];
     if (this.doMgL < 1.0) alarms.push({ id: 'do_low', severity: 'alarm', message: `DO LOW ${this.doMgL.toFixed(1)} mg/L` });
     else if (this.doMgL < 1.5) alarms.push({ id: 'do_warn', severity: 'warn', message: `DO marginal ${this.doMgL.toFixed(1)} mg/L` });
@@ -327,7 +343,8 @@ export class ProcessModel {
       });
     }
     if (capacityUtilPct > 100) alarms.push({ id: 'cap_exceed', severity: 'alarm', message: `CAPACITY EXCEED ${capacityUtilPct.toFixed(0)}%` });
-    else if (capacityUtilPct > 90) alarms.push({ id: 'cap_warn', severity: 'warn', message: `Near capacity ${capacityUtilPct.toFixed(0)}%` });
+    else if (avgUtilPct > 90)
+      alarms.push({ id: 'cap_warn', severity: 'warn', message: `Near capacity — 2 h avg ${avgUtilPct.toFixed(0)}% of rated ADF` });
     if (this.mlss > 4000) alarms.push({ id: 'mlss_high', severity: 'warn', message: `MLSS high ${this.mlss.toFixed(0)} mg/L` });
     if (p.ecaTpMgL != null && this.effluentTp > p.ecaTpMgL * 1.15) {
       alarms.push({

@@ -116,6 +116,7 @@ export class HoverTip {
   private plant: PlantRuntime | null = null;
   private lastClientX = 0;
   private lastClientY = 0;
+  private estimateNotes: Record<string, string> = {};
 
   constructor(host: HTMLElement, onFocusScada: FocusScadaFn, plant?: PlantRuntime) {
     this.onFocusScada = onFocusScada;
@@ -142,6 +143,11 @@ export class HoverTip {
 
   destroy(): void {
     this.el.remove();
+  }
+
+  /** unitId → "Estimated placement, not from OSM …" line for placeholder units. */
+  setEstimateNotes(notes: Record<string, string>): void {
+    this.estimateNotes = { ...notes };
   }
 
   /** Feed live sim tags so the tip stays current while hovered. */
@@ -201,6 +207,7 @@ export class HoverTip {
     this.el.innerHTML = `
       <div class="hover-title">${escapeHtml(ex.name)}</div>
       <div class="hover-blurb">${escapeHtml(ex.blurb)}</div>
+      ${this.estimateNotes[unitId] ? `<div class="hover-est">⚠ ${escapeHtml(this.estimateNotes[unitId])}</div>` : ''}
       ${liveHtml}
       ${btn}
     `;

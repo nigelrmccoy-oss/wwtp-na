@@ -34,6 +34,12 @@ export interface GisUnitSnap {
   yaw: number;
   /** Per-tank / basin count placed at this snap. */
   count: number;
+  /**
+   * True when the unit is NOT on a mapped OSM process footprint (placeholder / invented geometry).
+   * The scene suffixes the label with "(est.)" and HoverTip shows estimateNote.
+   */
+  estimated?: boolean;
+  estimateNote?: string;
   /** Real footprint size hints (metres). */
   radiusM?: number;
   widthM?: number;
@@ -223,47 +229,6 @@ function isDenied(plantId: string, cx: number, cz: number): boolean {
   const list = WATER_DENYLIST[plantId];
   if (!list) return false;
   return list.some((d) => Math.hypot(cx - d.cx, cz - d.cz) <= (d.tol ?? 15));
-}
-
-/** Split one elongated basin footprint into N equal slices along its major axis. */
-function splitBasinAlongMajor(fp: FootprintRing, n: number): FootprintRing[] {
-  if (n <= 1) return [fp];
-  const out: FootprintRing[] = [];
-  const cos = Math.cos(fp.yaw);
-  const sin = Math.sin(fp.yaw);
-  const sliceW = fp.obbWidth / n;
-  for (let i = 0; i < n; i++) {
-    const u = -fp.obbWidth / 2 + sliceW * (i + 0.5);
-    const cx = fp.cx + cos * u;
-    const cz = fp.cz + sin * u;
-    const hw = sliceW * 0.48;
-    const hd = fp.obbDepth * 0.48;
-    const local = [
-      [-hw, -hd],
-      [hw, -hd],
-      [hw, hd],
-      [-hw, hd],
-      [-hw, -hd],
-    ];
-    const ring = local.map(([u0, v0]) => [
-      cx + cos * u0 - Math.sin(fp.yaw) * v0,
-      cz + sin * u0 + cos * v0,
-    ]);
-    out.push({
-      ring,
-      cx,
-      cz,
-      area: sliceW * fp.obbDepth * 0.92,
-      width: sliceW,
-      depth: fp.obbDepth,
-      obbWidth: sliceW * 0.96,
-      obbDepth: fp.obbDepth * 0.96,
-      circularity: 0.4,
-      yaw: fp.yaw,
-      kind: 'basin',
-    });
-  }
-  return out;
 }
 
 function aabbOfRing(fp: FootprintRing, margin = 0): { minX: number; maxX: number; minZ: number; maxZ: number } {
@@ -501,17 +466,8 @@ export function buildGisLayout(
   if (counts.aeration > 0) {
     aerationFs = basins.slice(0, Math.max(1, Math.min(counts.aeration, basins.length)));
   }
-  if (
-    plantId !== 'kitchener' &&
-    !counts.hasOxidationDitch &&
-    counts.aeration > aerationFs.length &&
-    aerationFs.length >= 1
-  ) {
-    const need = counts.aeration;
-    const biggest = [...aerationFs].sort((a, b) => b.area - a.area)[0];
-    const rest = aerationFs.filter((f) => f !== biggest);
-    aerationFs = [...rest, ...splitBasinAlongMajor(biggest, need - rest.length)];
-  }
+  // v0.3.11: no forced 1→N rectangle split (it drew OBB slices ~1.9× the real L-shaped
+  // Waterloo footprint). Twin tanks that OSM merged into one polygon stay one true-ring basin.
 
   const siteCx = (bounds.minX + bounds.maxX) / 2;
   const siteCz = (bounds.minZ + bounds.maxZ) / 2;
@@ -534,6 +490,13 @@ export function buildGisLayout(
       widthM: rectPrimary ? Math.max(...primaryFs.map((f) => f.obbWidth)) : undefined,
       depthM: rectPrimary ? Math.max(...primaryFs.map((f) => f.obbDepth)) : undefined,
       footprints: primaryFs,
+      ...(kitRectPrimary
+        ? {
+            estimated: true,
+            estimateNote:
+              'Estimated placement, not from OSM — rectangular primaries are not mapped in OpenStreetMap; 45×18 m tanks placed west of aeration as a stand-in.',
+          }
+        : {}),
     });
   }
 
@@ -635,33 +598,41 @@ export function buildGisLayout(
       yaw: 0,
       count: 1,
       footprints: [],
+      estimated: true,
+      estimateNote: 'Estimated placement, not from OSM — schematic headworks building placed upstream of the process train.',
     });
 
     const sec = snaps.find((s) => s.id === 'secondary');
-    const dx = sec ? sec.x : maxX;
-    const dz = sec ? sec.z : midZ;
-    const disX = dx + 36;
+    const blockers = snaps.flatMap((s) => s.footprints);
+    const aer = snaps.find((s) => s.id === 'aeration');
+    const dis = placeDisinfection(pack, bounds, blockers, sec, aer ? { x: aer.x, z: aer.z } : null, { x: maxX, z: midZ }, [
+      { x: headX, z: midZ, half: 12 },
+    ]);
     if (counts.disinfection === 'uv' && counts.uvBanks > 0) {
       snaps.push({
         id: 'disinfection',
         label: 'UV Disinfection',
         kind: 'uv',
-        x: disX,
-        z: dz,
+        x: dis.x,
+        z: dis.z,
         yaw: 0,
         count: counts.uvBanks,
         footprints: [],
+        estimated: true,
+        estimateNote: dis.note,
       });
     } else if (counts.disinfection === 'chlorine' && counts.chlorineChannels > 0) {
       snaps.push({
         id: 'disinfection',
         label: 'Chlorine Contact',
         kind: 'chlorine',
-        x: disX,
-        z: dz,
+        x: dis.x,
+        z: dis.z,
         yaw: 0,
         count: counts.chlorineChannels,
         footprints: [],
+        estimated: true,
+        estimateNote: dis.note,
       });
     }
 
@@ -674,6 +645,8 @@ export function buildGisLayout(
       yaw: 0,
       count: 1,
       footprints: [],
+      estimated: true,
+      estimateNote: 'Estimated placement, not from OSM — schematic solids building.',
     });
   }
 
@@ -755,4 +728,72 @@ function centroidOf(fs: FootprintRing[]): { x: number; z: number } {
 function avgRadius(fs: FootprintRing[]): number {
   const rs = fs.map((f) => Math.sqrt(f.area / Math.PI));
   return rs.reduce((a, b) => a + b, 0) / rs.length;
+}
+
+/** Candidate clear spot for disinfection — never on top of a mapped clarifier/basin. */
+function placeDisinfection(
+  pack: PlantGeoPack,
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+  blockers: FootprintRing[],
+  sec: GisUnitSnap | undefined,
+  upstream: { x: number; z: number } | null,
+  fallback: { x: number; z: number },
+  extra: { x: number; z: number; half: number }[],
+): { x: number; z: number; note: string } {
+  // UV channel mesh is ~16×6 m; keep 6 m clear of any process footprint.
+  const HALF_W = 10;
+  const HALF_D = 6;
+  const clear = (x: number, z: number, margin = 6): boolean => {
+    const box = { minX: x - HALF_W, maxX: x + HALF_W, minZ: z - HALF_D, maxZ: z + HALF_D };
+    if (blockers.some((b) => aabbOverlap(box, aabbOfRing(b, margin)))) return false;
+    if (extra.some((e) => aabbOverlap(box, { minX: e.x - e.half - margin, maxX: e.x + e.half + margin, minZ: e.z - e.half - margin, maxZ: e.z + e.half + margin }))) return false;
+    return x >= bounds.minX && x <= bounds.maxX && z >= bounds.minZ && z <= bounds.maxZ;
+  };
+  const anchor = sec ? { x: sec.x, z: sec.z } : fallback;
+  const secR = sec?.footprints.length
+    ? Math.max(...sec.footprints.map((f) => Math.hypot(f.cx - anchor.x, f.cz - anchor.z) + Math.sqrt(f.area / Math.PI)))
+    : 30;
+
+  // 1) A real OSM building inside the WWTP that is big enough and clear of process tanks.
+  let best: { x: number; z: number; d: number } | null = null;
+  for (const f of pack.geojson.features as GeoFeature[]) {
+    if (f.properties.kind !== 'building' || f.geometry.type !== 'Polygon') continue;
+    const ring = f.geometry.coordinates[0] as number[][];
+    if (ring.length < 4) continue;
+    const area = polygonArea(ring);
+    if (area < 150 || area > 4000) continue;
+    const b = bbox(ring);
+    if (b.maxX - b.minX < 2 * HALF_W * 0.8 && b.maxZ - b.minZ < 2 * HALF_W * 0.8) continue;
+    const c = centroid(ring);
+    if (!inside(bounds, c.x, c.z, 0)) continue;
+    if (!clear(c.x, c.z, 4)) continue;
+    const d = Math.hypot(c.x - anchor.x, c.z - anchor.z);
+    // Must sit close to the secondaries (disinfection follows final clarification).
+    if (d > secR + 25) continue;
+    if (!best || d < best.d) best = { x: c.x, z: c.z, d };
+  }
+  if (best) {
+    return {
+      x: best.x,
+      z: best.z,
+      note: 'Estimated placement — set on the nearest mapped OSM building clear of the clarifiers; OSM does not tag this building as the UV/disinfection facility.',
+    };
+  }
+  // 2) Collision-checked clear ground ringing the secondary clarifiers.
+  // Try angles nearest the downstream direction (away from aeration) first.
+  const downA = upstream ? Math.atan2(anchor.z - upstream.z, anchor.x - upstream.x) : 0;
+  const angles = Array.from({ length: 24 }, (_, k) => {
+    const off = Math.ceil(k / 2) * (Math.PI / 12) * (k % 2 ? 1 : -1);
+    return downA + off;
+  });
+  for (let r = secR + 14; r < secR + 160; r += 6) {
+    for (const a of angles) {
+      const x = anchor.x + Math.cos(a) * r;
+      const z = anchor.z + Math.sin(a) * r;
+      if (clear(x, z)) {
+        return { x, z, note: 'Estimated placement, not from OSM — set on clear ground downstream of the secondary clarifiers.' };
+      }
+    }
+  }
+  return { x: fallback.x + 40, z: fallback.z, note: 'Estimated placement, not from OSM.' };
 }

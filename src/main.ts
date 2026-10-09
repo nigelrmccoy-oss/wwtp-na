@@ -34,6 +34,15 @@ let simSpeed: SimSpeed = 4;
 let texturesReady = loadPlantTextures();
 let lastAlarmIds: string[] = [];
 
+// Opt-in QA hook (?qa in the URL) for headless smoke harnesses — read-only accessors.
+if (new URLSearchParams(location.search).has('qa')) {
+  (window as unknown as { __wwtpQA?: unknown }).__wwtpQA = {
+    snapshot: () => scene?.qaSnapshot() ?? null,
+    scene: () => scene,
+    simState: () => (model ? { setpoints: { ...model.setpoints } } : null),
+  };
+}
+
 const menu = mountMenu(menuHost, async ({ plant }) => {
   await audio.unlock();
   audio.uiClick();
@@ -114,6 +123,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   );
   setModeBadge('orbit');
   setCamCycleBadge(scene.getCamCycleLabel());
+  hoverTip?.setEstimateNotes(scene.estimateNotes);
 
   minimap?.destroy();
   minimap = new Minimap(document.getElementById('app')!, scene);

@@ -49,6 +49,8 @@ export class PlantScene {
   demSource = '';
   gisSummary = '';
   gisUsed = false;
+  /** unitId → on-screen honesty note for placeholder / invented placements. */
+  readonly estimateNotes: Record<string, string> = {};
 
   private root: THREE.Group;
   private processRoot: THREE.Group;
@@ -61,6 +63,9 @@ export class PlantScene {
   /** V-key cycle: bird's-eye → nadir → walk-through */
   private camCycle: 0 | 1 | 2 = 0;
   private walkPos = new THREE.Vector3(40, 2.2, 55);
+  private walkInitDone = false;
+  private labelSprites: THREE.Sprite[] = [];
+  private pipeSegs: { x0: number; z0: number; x1: number; z1: number }[] = [];
   private focusIndex = -1;
   private onCamCycleChange: ((label: string) => void) | null = null;
   private raycaster = new THREE.Raycaster();
@@ -84,6 +89,8 @@ export class PlantScene {
   private dem: DemData | null = null;
   private orthoDispose: (() => void) | null = null;
   orthoAttribution = '';
+  /** True once Esri/custom imagery tiles are draped (yard asphalt hidden). */
+  orthoActive = false;
   private padGrade = 0;
   private terrainOpts: TerrainOpts = { padW: 110, padD: 80 };
   private readonly eyeHeight = 1.7;
@@ -168,6 +175,7 @@ export class PlantScene {
       if (this.disposed) return;
       this.animId = requestAnimationFrame(loop);
       this.update(this.clock.getDelta());
+      this.declutterLabels();
       this.renderer.render(this.scene, this.camera);
     };
     loop();
@@ -243,6 +251,88 @@ export class PlantScene {
     }
   }
 
+  /**
+   * QA snapshot (only reachable via the ?qa debug hook): world placement of every
+   * OSM-footprint-backed mesh vs its source polygon, plus renderer stats.
+   */
+  qaSnapshot(): {
+    footprints: { unitId: string; kind: string; osm: [number, number]; placed: [number, number]; errM: number; areaOsm: number; areaPlaced: number; maxVertexErrM: number | null }[];
+    estimates: Record<string, string>;
+    renderer: { calls: number; triangles: number; geometries: number; textures: number; meshes: number };
+  } {
+    this.scene.updateMatrixWorld(true);
+    const out: ReturnType<PlantScene['qaSnapshot']>['footprints'] = [];
+    const v = new THREE.Vector3();
+    this.processRoot.traverse((o) => {
+      const fp = o.userData.osmFp as
+        | { cx: number; cz: number; area: number; unitId: string; kind: string; r?: number; ring?: number[][] }
+        | undefined;
+      if (!fp) return;
+      o.getWorldPosition(v);
+      let areaPlaced = fp.kind === 'cyl' ? Math.PI * (fp.r ?? 0) ** 2 : 0;
+      let maxVertexErrM: number | null = null;
+      if (fp.kind === 'basin' && fp.ring) {
+        const floor = (o as THREE.Group).children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh | undefined;
+        if (floor) {
+          const pos = floor.geometry.getAttribute('position') as THREE.BufferAttribute;
+          const pts: THREE.Vector3[] = [];
+          let maxY = -Infinity;
+          for (let i = 0; i < pos.count; i++) maxY = Math.max(maxY, pos.getY(i));
+          const idx = floor.geometry.getIndex();
+          const tri = (i: number) => (idx ? idx.getX(i) : i);
+          const n = idx ? idx.count : pos.count;
+          const a = new THREE.Vector3();
+          const b = new THREE.Vector3();
+          const c = new THREE.Vector3();
+          areaPlaced = 0;
+          for (let i = 0; i < n; i += 3) {
+            a.fromBufferAttribute(pos, tri(i));
+            b.fromBufferAttribute(pos, tri(i + 1));
+            c.fromBufferAttribute(pos, tri(i + 2));
+            if (Math.abs(a.y - maxY) > 1e-3 || Math.abs(b.y - maxY) > 1e-3 || Math.abs(c.y - maxY) > 1e-3) continue;
+            areaPlaced += Math.abs((b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)) / 2;
+          }
+          for (let i = 0; i < pos.count; i++) {
+            if (Math.abs(pos.getY(i) - maxY) > 1e-3) continue;
+            pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(floor.matrixWorld));
+          }
+          maxVertexErrM = 0;
+          for (const [rx, rz] of fp.ring) {
+            let best = Infinity;
+            for (const p of pts) best = Math.min(best, Math.hypot(p.x - rx, p.z - rz));
+            maxVertexErrM = Math.max(maxVertexErrM, best);
+          }
+        }
+      }
+      out.push({
+        unitId: fp.unitId,
+        kind: fp.kind,
+        osm: [fp.cx, fp.cz],
+        placed: [v.x, v.z],
+        errM: Math.hypot(v.x - fp.cx, v.z - fp.cz),
+        areaOsm: fp.area,
+        areaPlaced,
+        maxVertexErrM,
+      });
+    });
+    let meshes = 0;
+    this.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshes++;
+    });
+    const info = this.renderer.info;
+    return {
+      footprints: out,
+      estimates: { ...this.estimateNotes },
+      renderer: {
+        calls: info.render.calls,
+        triangles: info.render.triangles,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        meshes,
+      },
+    };
+  }
+
   /** Project process-train unit centres to canvas CSS pixels for the layout overlay. */
   getOverlayAnchors(canvas: HTMLCanvasElement): { id: string; label: string; x: number; y: number }[] {
     const rect = canvas.getBoundingClientRect();
@@ -272,6 +362,8 @@ export class PlantScene {
     this.orbitTarget.copy(c);
     this.orbitTarget.y = this.padGrade;
     this.walkPos.set(c.x + 12, this.sampleEyeY(c.x + 12, c.z + 16), c.z + 16);
+    this.walkInitDone = true;
+    if (this.mode === 'walk') this.faceProcess(c);
     if (this.mode === 'orbit' && this.camCycle !== 1) {
       this.orbitDist = clamp(Math.max(box.getSize(new THREE.Vector3()).length() * 1.8, 28), 22, 520);
       this.pitch = -0.55;
@@ -304,7 +396,7 @@ export class PlantScene {
       this.orbitDist = clamp(span * 0.85, 36, 580);
     } else {
       this.mode = 'walk';
-      this.pitch = -0.12;
+      this.enterWalk();
     }
     this.onModeChange?.(this.mode);
     const label = this.getCamCycleLabel();
@@ -394,11 +486,19 @@ export class PlantScene {
     // Process units share the asphalt yard datum
     this.processRoot.position.y = padGrade;
 
+    const orthoFrameSrc = this.gis?.siteBounds ?? this.gis?.pad;
+    const orthoHalf = Math.min(
+      900,
+      Math.max(400, ((orthoFrameSrc?.w ?? padW) + (orthoFrameSrc?.d ?? padD)) * 0.55),
+    );
+    const orthoCx = orthoFrameSrc?.cx ?? padCx;
+    const orthoCz = orthoFrameSrc?.cz ?? padCz;
     const osm = buildOsmSurroundings(geo, this.textures, this.plant.id, {
       terrain: this.terrainOpts,
       processYard: { cx: padCx, cz: padCz, w: padW, d: padD },
       maxBuildings: 320,
       maxRoads: 400,
+      orthoFrame: geo?.origin ? { cx: orthoCx, cz: orthoCz, half: orthoHalf } : undefined,
     });
     this.attribution = osm.attribution;
     this.demSource = geo?.dem?.source || geo?.attribution?.dem || osm.attribution;
@@ -417,20 +517,19 @@ export class PlantScene {
       this.units.push({ id: h.id, label: h.label, mesh: h.mesh });
     }
 
-    // Tiles-lite attributed ortho under/around site (Esri / custom URL; never Google/Apple/SV)
+    // Tiles-lite attributed ortho draped on the ground (Esri / custom URL; never Google/Apple/SV).
+    // v0.3.11: once imagery loads, the full-yard asphalt sheet and flat OSM fills inside the
+    // imagery frame are hidden so the real site shows through; placeholders keep tight aprons.
     if (geo?.origin) {
-      const frame = this.gis?.siteBounds ?? this.gis?.pad;
-      const half = Math.max(
-        400,
-        ((frame?.w ?? padW) + (frame?.d ?? padD)) * 0.55,
-      );
+      const terrainForDrape: TerrainOpts = { ...this.terrainOpts, padGrade };
       void mountOrthoUnderlay({
         origin: geo.origin,
-        cx: frame?.cx ?? padCx,
-        cz: frame?.cz ?? padCz,
-        halfExtentM: Math.min(900, half),
+        cx: orthoCx,
+        cz: orthoCz,
+        halfExtentM: orthoHalf,
         y: padGrade,
         host: document.getElementById('app'),
+        heightAt: (x, z) => groundY(x, z, dem, this.plant.id, terrainForDrape),
       }).then((ortho) => {
         if (this.disposed) {
           ortho.dispose();
@@ -439,6 +538,13 @@ export class PlantScene {
         this.root.add(ortho.group);
         this.orthoDispose = ortho.dispose;
         this.orthoAttribution = ortho.attribution;
+        if (ortho.group.children.length > 0) {
+          const padMesh = terrain.group.getObjectByName('site-pad');
+          if (padMesh) padMesh.visible = false;
+          const fills = osm.group.getObjectByName('osm-fills-ortho');
+          if (fills) fills.visible = false;
+          this.orthoActive = true;
+        }
       });
     }
   }
@@ -458,11 +564,14 @@ export class PlantScene {
       group.position.set(snap.x, 0, snap.z);
       group.rotation.y = snap.yaw;
       group.userData.unitId = snap.id;
-      const label = this.makeLabel(snap.label);
+      const shownLabel = snap.estimated ? `${snap.label} (est.)` : snap.label;
+      if (snap.estimated) this.estimateNotes[snap.id] = snap.estimateNote ?? 'Estimated placement, not from OSM';
+      const label = this.makeLabel(shownLabel);
       label.position.set(0, 10, 0);
       group.add(label);
+      if (!snap.footprints.length) this.addApron(group, snap);
       this.processRoot.add(group);
-      this.units.push({ id: snap.id, label: snap.label, mesh: group });
+      this.units.push({ id: snap.id, label: shownLabel, mesh: group });
     }
 
     // Process piping + outfall from GIS hints
@@ -483,6 +592,32 @@ export class PlantScene {
     }
   }
 
+  /** Tight asphalt apron under a schematic building / channel (sits above the ortho drape). */
+  private addApron(group: THREE.Group, snap: GisUnitSnap): void {
+    group.updateWorldMatrix(true, true);
+    const box = new THREE.Box3();
+    group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.name !== 'apron') box.expandByObject(o);
+    });
+    if (box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    const w = size.x + 10;
+    const d = size.z + 10;
+    const mat = this.mats.asphalt.clone();
+    mat.polygonOffset = true;
+    mat.polygonOffsetFactor = -3;
+    mat.polygonOffsetUnits = -6;
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+    apron.rotation.x = -Math.PI / 2;
+    const c = box.getCenter(new THREE.Vector3());
+    group.worldToLocal(c);
+    apron.position.set(c.x, 0.42, c.z);
+    apron.receiveShadow = true;
+    apron.userData.unitId = snap.id;
+    apron.name = 'apron';
+    group.add(apron);
+  }
+
   private meshFromGisSnap(snap: GisUnitSnap): THREE.Group | null {
     const group = new THREE.Group();
     if (snap.kind === 'cyl' && snap.footprints.length) {
@@ -490,12 +625,12 @@ export class PlantScene {
         const r = Math.sqrt(fp.area / Math.PI);
         const lx = fp.cx - snap.x;
         const lz = fp.cz - snap.z;
-        // Un-rotate into group local frame
-        const cos = Math.cos(-snap.yaw);
-        const sin = Math.sin(-snap.yaw);
-        const px = lx * cos - lz * sin;
-        const pz = lx * sin + lz * cos;
+        // Un-rotate into group local frame (inverse of Three.js rotation.y = snap.yaw)
+        const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
+        const before = group.children.length;
         this.addWalledClarifier(group, px, pz, r, snap.id === 'digesters' ? 5.5 : 3.2, snap.id);
+        // QA: tag the shell so harnesses can compare world centroid vs OSM footprint
+        group.children[before].userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'cyl', r };
       }
       return group;
     }
@@ -503,12 +638,12 @@ export class PlantScene {
       for (const fp of snap.footprints) {
         const lx = fp.cx - snap.x;
         const lz = fp.cz - snap.z;
-        const cos = Math.cos(-snap.yaw);
-        const sin = Math.sin(-snap.yaw);
-        const px = lx * cos - lz * sin;
-        const pz = lx * sin + lz * cos;
+        const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
         // Extrude true footprint ring (fixes AABB×0.92 ~1.9× area oversize)
+        const before = group.children.length;
         this.addFootprintBasin(group, fp, px, pz, 3.4, snap.id, snap.yaw);
+        const added = group.children[before];
+        if (added) added.userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'basin', ring: fp.ring };
       }
       return group;
     }
@@ -637,7 +772,7 @@ export class PlantScene {
 
     const shape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw);
     if (!shape) {
-      this.addOpenBasin(group, px, pz, fp.obbWidth, fp.obbDepth, h, unitId, fp.yaw - snapYaw);
+      this.addOpenBasin(group, px, pz, fp.obbWidth, fp.obbDepth, h, unitId, majorAxisToLocalRotY(fp.yaw, snapYaw));
       return;
     }
 
@@ -676,7 +811,7 @@ export class PlantScene {
     }
 
     // Diffuser baffle hints along OBB (interior only — not walls)
-    const yawLocal = fp.yaw - snapYaw;
+    const yawLocal = majorAxisToLocalRotY(fp.yaw, snapYaw);
     const baffles = new THREE.Group();
     baffles.rotation.y = yawLocal;
     for (let i = 0; i < 3; i++) {
@@ -703,19 +838,13 @@ export class PlantScene {
     h: number,
     unitId: string,
   ): void {
-    const cos = Math.cos(-snapYaw);
-    const sin = Math.sin(-snapYaw);
     const n =
       ring.length -
       (ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0);
     if (n < 3) return;
     const t = 0.45;
     const wallMat = this.mats.weathered;
-    const toLocal = (x: number, z: number) => {
-      const dx = x - cx;
-      const dz = z - cz;
-      return { x: dx * cos - dz * sin, z: dx * sin + dz * cos };
-    };
+    const toLocal = (x: number, z: number) => worldToGroupLocal(x - cx, z - cz, snapYaw);
     for (let i = 0; i < n; i++) {
       const a = toLocal(ring[i][0], ring[i][1]);
       const b = toLocal(ring[(i + 1) % n][0], ring[(i + 1) % n][1]);
@@ -869,6 +998,7 @@ export class PlantScene {
       const dz = seg.z1 - seg.z0;
       const len = Math.hypot(dx, dz);
       if (len < 2) continue;
+      this.pipeSegs.push({ x0: seg.x0, z0: seg.z0, x1: seg.x1, z1: seg.z1 });
       const dir = new THREE.Vector3(dx, 0, dz).normalize();
       const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, len, 10), mat);
       pipe.position.set((seg.x0 + seg.x1) / 2, 1.1, (seg.z0 + seg.z1) / 2);
@@ -1211,9 +1341,146 @@ export class PlantScene {
       sizeAttenuation: true,
     });
     const spr = new THREE.Sprite(mat);
-    spr.scale.set(22, 5.5, 1);
+    // Compact farmstead: 22 m labels swamp a ~30 m site.
+    const k = this.plant.isSeptic ? 0.62 : 1;
+    spr.scale.set(22 * k, 5.5 * k, 1);
+    spr.userData.baseScale = 5.5 * k;
     spr.renderOrder = 10;
+    this.labelSprites.push(spr);
     return spr;
+  }
+
+  /** Process-train units (no OSM context, no outfall) as world-space boxes. */
+  private processBoxes(): THREE.Box3[] {
+    return this.units
+      .filter((u) => !u.id.startsWith('osm_') && u.id !== 'outfall')
+      .map((u) => {
+        const b = new THREE.Box3();
+        u.mesh.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o.name !== 'apron') b.expandByObject(o);
+        });
+        return b;
+      })
+      .filter((b) => !b.isEmpty());
+  }
+
+  /**
+   * Walk entry: first time, stand between the orbit camera and the process train (clear of
+   * every tank) — always turn to face the units instead of blank ground.
+   */
+  private enterWalk(): void {
+    const boxes = this.processBoxes();
+    if (!boxes.length) {
+      this.pitch = -0.05;
+      return;
+    }
+    const all = boxes.reduce((acc, b) => acc.union(b.clone()), new THREE.Box3());
+    const cluster = all.getCenter(new THREE.Vector3());
+    const cam = this.camera.position;
+    // Nearest unit to the current view → stand just in front of it, looking into the train.
+    const near = boxes
+      .map((b) => ({ b, c: b.getCenter(new THREE.Vector3()) }))
+      .sort((a, b) => Math.hypot(a.c.x - cam.x, a.c.z - cam.z) - Math.hypot(b.c.x - cam.x, b.c.z - cam.z))[0];
+    const target = near.c.clone().lerp(cluster, 0.35);
+    if (!this.walkInitDone) {
+      const nsize = near.b.getSize(new THREE.Vector3());
+      const dir = new THREE.Vector3(cam.x - near.c.x, 0, cam.z - near.c.z);
+      if (dir.lengthSq() < 1) dir.set(0, 0, 1);
+      dir.normalize();
+      const r0 = Math.max(nsize.x, nsize.z) * 0.5 + 22;
+      const p = new THREE.Vector3();
+      const ro = this.processRoot;
+      ro.updateMatrixWorld(true);
+      const segs = this.pipeSegs.map((g) => {
+        const a = ro.localToWorld(new THREE.Vector3(g.x0, 0, g.z0));
+        const b = ro.localToWorld(new THREE.Vector3(g.x1, 0, g.z1));
+        return { a, b };
+      });
+      const segDist = (x: number, z: number, a: THREE.Vector3, b: THREE.Vector3): number => {
+        const vx = b.x - a.x;
+        const vz = b.z - a.z;
+        const t = THREE.MathUtils.clamp(((x - a.x) * vx + (z - a.z) * vz) / Math.max(vx * vx + vz * vz, 1e-6), 0, 1);
+        return Math.hypot(x - (a.x + vx * t), z - (a.z + vz * t));
+      };
+      // Candidates around the nearest unit: must be clear of every tank (4 m); prefer the
+      // camera side, close in, and well away from pipe runs (a 1.1 m pipe at eye level a few
+      // metres off fills the foreground).
+      const inBox = (x: number, z: number): boolean =>
+        boxes.some((b) => x > b.min.x - 4 && x < b.max.x + 4 && z > b.min.z - 4 && z < b.max.z + 4);
+      const pipeDist = (x: number, z: number): number =>
+        segs.reduce((m, g) => Math.min(m, segDist(x, z, g.a, g.b)), Infinity);
+      const base = Math.atan2(dir.z, dir.x);
+      let best = -Infinity;
+      p.set(near.c.x + dir.x * r0, 0, near.c.z + dir.z * r0);
+      for (let ring = 0; ring < 8; ring++) {
+        const r = r0 + ring * 8;
+        for (let k = -8; k <= 8; k++) {
+          const da = (k / 8) * Math.PI;
+          const x = near.c.x + Math.cos(base + da) * r;
+          const z = near.c.z + Math.sin(base + da) * r;
+          if (inBox(x, z)) continue;
+          const score = Math.min(pipeDist(x, z), 30) * 1.0 - ring * 2.5 - Math.abs(da) * 6;
+          if (score > best) {
+            best = score;
+            p.set(x, 0, z);
+          }
+        }
+      }
+      this.walkPos.set(p.x, this.sampleEyeY(p.x, p.z), p.z);
+      this.walkInitDone = true;
+    }
+    this.faceProcess(target);
+  }
+
+  private faceProcess(target: THREE.Vector3): void {
+    const dx = target.x - this.walkPos.x;
+    const dz = target.z - this.walkPos.z;
+    // forward = (−sin yaw, 0, −cos yaw)
+    this.yaw = Math.atan2(-dx, -dz);
+    this.pitch = -0.06;
+  }
+
+  /**
+   * Screen-space label declutter: nearer labels keep their anchor, overlapping ones are
+   * stacked upward (via Sprite.center, i.e. whole label heights) so text never overlaps.
+   */
+  private declutterLabels(): void {
+    const sprites = this.labelSprites.filter((sp) => sp.visible && sp.parent);
+    if (!sprites.length) return;
+    const canvas = this.renderer.domElement;
+    const H = canvas.clientHeight || window.innerHeight;
+    const W = canvas.clientWidth || window.innerWidth;
+    const f = H / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+    const v = new THREE.Vector3();
+    const items = sprites
+      .map((sp) => {
+        sp.getWorldPosition(v);
+        const dist = v.distanceTo(this.camera.position);
+        v.project(this.camera);
+        // Cap on-screen label height (close-up walk views otherwise get a wall of text).
+        const base = (sp.userData.baseScale as number | undefined) ?? sp.scale.y;
+        const raw = (base * f) / Math.max(dist, 1e-3);
+        const maxPx = 34;
+        const sy = raw > maxPx ? base * (maxPx / raw) : base;
+        sp.scale.set(sy * 4, sy, 1);
+        const h = Math.min(raw, maxPx);
+        return { sp, x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H, w: h * 4, h, dist, front: v.z < 1 };
+      })
+      .filter((it) => it.front)
+      .sort((a, b) => a.dist - b.dist);
+    const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    for (const it of items) {
+      let k = 0;
+      for (; k < 8; k++) {
+        const cy = it.y - k * it.h * 1.08;
+        const r = { x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 };
+        if (!placed.some((p) => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) {
+          placed.push(r);
+          break;
+        }
+      }
+      it.sp.center.set(0.5, 0.5 - Math.min(k, 7) * 1.08);
+    }
   }
 
   private bindInput(canvas: HTMLCanvasElement): void {
@@ -1221,8 +1488,10 @@ export class PlantScene {
       this.keys.add(e.code);
       if (e.code === 'KeyC') {
         this.mode = this.mode === 'orbit' ? 'walk' : 'orbit';
-        if (this.mode === 'walk') this.camCycle = 2;
-        else if (this.camCycle === 2) this.camCycle = 0;
+        if (this.mode === 'walk') {
+          this.camCycle = 2;
+          this.enterWalk();
+        } else if (this.camCycle === 2) this.camCycle = 0;
         this.onModeChange?.(this.mode);
         this.onCamCycleChange?.(this.getCamCycleLabel());
       }
@@ -1456,19 +1725,35 @@ function ringToLocalShape(
   scale = 1,
 ): THREE.Shape | null {
   if (!ring || ring.length < 3) return null;
-  const cos = Math.cos(-snapYaw);
-  const sin = Math.sin(-snapYaw);
   const n = ring.length - (ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0);
   if (n < 3) return null;
   const shape = new THREE.Shape();
   for (let i = 0; i < n; i++) {
-    const dx = (ring[i][0] - cx) * scale;
-    const dz = (ring[i][1] - cz) * scale;
-    const lx = dx * cos - dz * sin;
-    const lz = dx * sin + dz * cos;
+    const { x: lx, z: lz } = worldToGroupLocal((ring[i][0] - cx) * scale, (ring[i][1] - cz) * scale, snapYaw);
     if (i === 0) shape.moveTo(lx, -lz);
     else shape.lineTo(lx, -lz);
   }
   shape.closePath();
   return shape;
+}
+
+/**
+ * Inverse of a Three.js `rotation.y = yaw` group transform for an XZ offset.
+ * Three's R_y(θ) maps (x, z) → (x·cosθ + z·sinθ, −x·sinθ + z·cosθ), so the inverse is
+ * (x·cosθ − z·sinθ, x·sinθ + z·cosθ). v0.3.10 used cos(−θ)/sin(−θ) here, which applied
+ * R_y(θ) a second time (net 2θ) and swung every footprint off its OSM polygon.
+ */
+export function worldToGroupLocal(dx: number, dz: number, yaw: number): { x: number; z: number } {
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  return { x: dx * c - dz * s, z: dx * s + dz * c };
+}
+
+/**
+ * Local rotation.y that aligns a child's +X with a footprint major axis given as a math angle
+ * (atan2 in the X→Z plane, as gisLayout's majorAxisYaw), inside a group rotated by groupYaw.
+ * Three's rotation.y turns +X toward −Z, so world rotation = −majorYaw.
+ */
+export function majorAxisToLocalRotY(majorYaw: number, groupYaw: number): number {
+  return -majorYaw - groupYaw;
 }

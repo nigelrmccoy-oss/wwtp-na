@@ -550,6 +550,8 @@ export class PlantScene {
           if (padMesh) padMesh.visible = false;
           const fills = osm.group.getObjectByName('osm-fills-ortho');
           if (fills) fills.visible = false;
+          const ground = terrain.group.getObjectByName('terrain-ground') as THREE.Mesh | undefined;
+          if (ground) sinkTerrainUnderDrape(ground, ortho.group.children.map((t) => new THREE.Box3().setFromObject(t)));
           this.orthoActive = true;
         }
       });
@@ -1768,4 +1770,40 @@ export function worldToGroupLocal(dx: number, dz: number, yaw: number): { x: num
  */
 export function majorAxisToLocalRotY(majorYaw: number, groupYaw: number): number {
   return -majorYaw - groupYaw;
+}
+
+/**
+ * Overhead seam fix (v0.3.12): the ortho drape (≈11 m segments) and the DEM terrain (≈9.7 m cells)
+ * interpolate the same ground differently, so terrain creases/vertices poked up to ~1 m through
+ * the drape's +0.3 m lift as thin dark-green lines (visible from straight overhead with fog off).
+ * Under imagery the terrain is never seen, so sink it 2.5 m there, ramping back to true height
+ * over the outer ~1.5 cells so the drape edge still meets the surrounding grass seamlessly.
+ */
+export function sinkTerrainUnderDrape(ground: THREE.Mesh, tiles: THREE.Box3[], depth = 2.5): void {
+  const cover = tiles.filter((b) => !b.isEmpty());
+  if (!cover.length) return;
+  // Union of tile rects (tiles share edges, so a vertex's inset is measured to the union border).
+  const union = cover.reduce((u, b) => u.union(b), new THREE.Box3());
+  const geo = ground.geometry as THREE.BufferGeometry;
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  ground.updateMatrixWorld(true);
+  const inv = ground.matrixWorld.clone().invert();
+  const v = new THREE.Vector3();
+  // Terrain cell size from the first row of vertices.
+  const cell = Math.max(1, Math.abs(pos.getX(1) - pos.getX(0)));
+  const ramp = cell * 1.5;
+  for (let i = 0; i < pos.count; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(ground.matrixWorld);
+    // Skip holes (a tile that failed to load) — only sink where some tile covers the vertex.
+    if (!cover.some((b) => v.x >= b.min.x && v.x <= b.max.x && v.z >= b.min.z && v.z <= b.max.z)) continue;
+    const inset = Math.min(v.x - union.min.x, union.max.x - v.x, v.z - union.min.z, union.max.z - v.z);
+    if (inset <= 0) continue;
+    const k = Math.min(1, inset / ramp);
+    v.y -= depth * k;
+    v.applyMatrix4(inv);
+    pos.setY(i, v.y);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
 }

@@ -451,6 +451,7 @@ export class PlantScene {
       disinfection: this.plant.disinfectionType,
       uvBanks: this.plant.uvBanks,
       chlorineChannels: this.plant.chlorineContactCount,
+      hasDigestion: this.plant.research.process.includes('anaerobic_digestion'),
     });
     this.gisUsed = this.gis.used;
     this.gisSummary = this.gis.summary;
@@ -637,7 +638,8 @@ export class PlantScene {
         // Un-rotate into group local frame (inverse of Three.js rotation.y = snap.yaw)
         const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
         const before = group.children.length;
-        this.addWalledClarifier(group, px, pz, r, snap.id === 'digesters' ? 5.5 : 3.2, snap.id);
+        if (snap.id === 'digesters') this.addDigesterTank(group, px, pz, r, snap.id);
+        else this.addWalledClarifier(group, px, pz, r, 3.2, snap.id);
         // QA: tag the shell so harnesses can compare world centroid vs OSM footprint
         group.children[before].userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'cyl', r };
       }
@@ -695,6 +697,31 @@ export class PlantScene {
     roof.userData.unitId = snap.id;
     group.add(roof);
     return group;
+  }
+
+  /** Covered anaerobic digester on a real OSM storage-tank ring: closed shell + shallow dome roof. */
+  private addDigesterTank(group: THREE.Group, px: number, pz: number, r: number, unitId: string): void {
+    const h = 9;
+    const shell = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 48), this.mats.concreteAlt);
+    shell.position.set(px, h / 2, pz);
+    shell.castShadow = true;
+    shell.receiveShadow = true;
+    shell.userData.unitId = unitId;
+    group.add(shell);
+    // Dome: spherical cap rising ~2.8 m over radius r.
+    const rise = Math.min(2.8, r * 0.3);
+    const R = (r * r + rise * rise) / (2 * rise);
+    const theta = Math.asin(Math.min(1, r / R));
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 10, 0, Math.PI * 2, 0, theta), this.mats.concrete);
+    dome.position.set(px, h - (R - rise), pz);
+    dome.castShadow = true;
+    dome.userData.unitId = unitId;
+    group.add(dome);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(r * 1.005, 0.18, 6, 64), this.mats.metal);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(px, h, pz);
+    band.userData.unitId = unitId;
+    group.add(band);
   }
 
   /** Photoreal open-walled clarifier: concrete shell + floor + reflective water + metal weir. */

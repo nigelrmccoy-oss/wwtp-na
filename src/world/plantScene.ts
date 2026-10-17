@@ -191,7 +191,14 @@ export class PlantScene {
     if (this.onKeyUp) window.removeEventListener('keyup', this.onKeyUp);
     this.onKeyDown = null;
     this.onKeyUp = null;
+    // The next plant's WebGLRenderer reuses this canvas's GL context. three leaves
+    // UNPACK_FLIP_Y / PREMULTIPLY_ALPHA set from the last 2D (canvas-label) upload, and the
+    // new renderer's WebGLState immediately creates its empty 3D / 2D-array textures with
+    // texImage3D → "FLIP_Y or PREMULTIPLY_ALPHA isn't allowed for uploading 3D textures" ×2.
+    const gl = this.renderer.getContext();
     this.renderer.dispose();
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   }
 
   highlightUnit(id: string | null): void {
@@ -1573,8 +1580,13 @@ export class PlantScene {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const meshes: THREE.Object3D[] = [];
     for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
-    const hits = this.raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return null;
+    const raw = this.raycaster.intersectObjects(meshes, false);
+    if (!raw.length) return null;
+    // Real geometry wins over label sprites: labels are depthTest:false billboards ~22 m wide,
+    // so a nearer unit's label (e.g. Waterloo Outfall) used to steal the hover from the
+    // building actually under the cursor (Headworks). Labels still pick when nothing else does.
+    const isLabel = (o: THREE.Object3D) => (o as THREE.Sprite).isSprite === true;
+    const hits = [...raw.filter((h) => !isLabel(h.object)), ...raw.filter((h) => isLabel(h.object))];
 
     const resolveId = (start: THREE.Object3D | null): string | undefined => {
       let obj: THREE.Object3D | null = start;

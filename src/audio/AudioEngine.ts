@@ -13,6 +13,8 @@ const LOOP_FILES: Record<LoopId, string[]> = {
   alarm: ['sfx/alarm.ogg', 'sfx/alarm.wav'],
 };
 
+const SFX_PRESENT = new Set<string>(typeof __SFX_FILES__ !== 'undefined' ? __SFX_FILES__ : []);
+
 const ONESHOT_FILES: Record<OneShotId, string[]> = {
   uiClick: ['sfx/uiClick.ogg', 'sfx/uiClick.wav'],
   scadaTick: ['sfx/scadaTick.ogg', 'sfx/scadaTick.wav'],
@@ -165,6 +167,9 @@ export class AudioEngine {
   private async tryLoad(paths: string[]): Promise<AudioBuffer | null> {
     const ctx = this.ensureCtx();
     for (const path of paths) {
+      // Only request overrides that exist (listed at build time) — no 404s for the default
+      // procedural voices.
+      if (!SFX_PRESENT.has(path.replace(/^\//, ''))) continue;
       try {
         const url = import.meta.env.BASE_URL + path.replace(/^\//, '');
         const res = await fetch(url);

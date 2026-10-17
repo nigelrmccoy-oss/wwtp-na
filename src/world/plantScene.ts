@@ -191,7 +191,14 @@ export class PlantScene {
     if (this.onKeyUp) window.removeEventListener('keyup', this.onKeyUp);
     this.onKeyDown = null;
     this.onKeyUp = null;
+    // The next plant's WebGLRenderer reuses this canvas's GL context. three leaves
+    // UNPACK_FLIP_Y / PREMULTIPLY_ALPHA set from the last 2D (canvas-label) upload, and the
+    // new renderer's WebGLState immediately creates its empty 3D / 2D-array textures with
+    // texImage3D → "FLIP_Y or PREMULTIPLY_ALPHA isn't allowed for uploading 3D textures" ×2.
+    const gl = this.renderer.getContext();
     this.renderer.dispose();
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   }
 
   highlightUnit(id: string | null): void {
@@ -444,6 +451,7 @@ export class PlantScene {
       disinfection: this.plant.disinfectionType,
       uvBanks: this.plant.uvBanks,
       chlorineChannels: this.plant.chlorineContactCount,
+      hasDigestion: this.plant.research.process.includes('anaerobic_digestion'),
     });
     this.gisUsed = this.gis.used;
     this.gisSummary = this.gis.summary;
@@ -543,6 +551,8 @@ export class PlantScene {
           if (padMesh) padMesh.visible = false;
           const fills = osm.group.getObjectByName('osm-fills-ortho');
           if (fills) fills.visible = false;
+          const ground = terrain.group.getObjectByName('terrain-ground') as THREE.Mesh | undefined;
+          if (ground) sinkTerrainUnderDrape(ground, ortho.group.children.map((t) => new THREE.Box3().setFromObject(t)));
           this.orthoActive = true;
         }
       });
@@ -628,7 +638,8 @@ export class PlantScene {
         // Un-rotate into group local frame (inverse of Three.js rotation.y = snap.yaw)
         const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
         const before = group.children.length;
-        this.addWalledClarifier(group, px, pz, r, snap.id === 'digesters' ? 5.5 : 3.2, snap.id);
+        if (snap.id === 'digesters') this.addDigesterTank(group, px, pz, r, snap.id);
+        else this.addWalledClarifier(group, px, pz, r, 3.2, snap.id);
         // QA: tag the shell so harnesses can compare world centroid vs OSM footprint
         group.children[before].userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'cyl', r };
       }
@@ -686,6 +697,31 @@ export class PlantScene {
     roof.userData.unitId = snap.id;
     group.add(roof);
     return group;
+  }
+
+  /** Covered anaerobic digester on a real OSM storage-tank ring: closed shell + shallow dome roof. */
+  private addDigesterTank(group: THREE.Group, px: number, pz: number, r: number, unitId: string): void {
+    const h = 9;
+    const shell = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 48), this.mats.concreteAlt);
+    shell.position.set(px, h / 2, pz);
+    shell.castShadow = true;
+    shell.receiveShadow = true;
+    shell.userData.unitId = unitId;
+    group.add(shell);
+    // Dome: spherical cap rising ~2.8 m over radius r.
+    const rise = Math.min(2.8, r * 0.3);
+    const R = (r * r + rise * rise) / (2 * rise);
+    const theta = Math.asin(Math.min(1, r / R));
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 10, 0, Math.PI * 2, 0, theta), this.mats.concrete);
+    dome.position.set(px, h - (R - rise), pz);
+    dome.castShadow = true;
+    dome.userData.unitId = unitId;
+    group.add(dome);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(r * 1.005, 0.18, 6, 64), this.mats.metal);
+    band.rotation.x = Math.PI / 2;
+    band.position.set(px, h, pz);
+    band.userData.unitId = unitId;
+    group.add(band);
   }
 
   /** Photoreal open-walled clarifier: concrete shell + floor + reflective water + metal weir. */
@@ -1573,8 +1609,13 @@ export class PlantScene {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const meshes: THREE.Object3D[] = [];
     for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
-    const hits = this.raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return null;
+    const raw = this.raycaster.intersectObjects(meshes, false);
+    if (!raw.length) return null;
+    // Real geometry wins over label sprites: labels are depthTest:false billboards ~22 m wide,
+    // so a nearer unit's label (e.g. Waterloo Outfall) used to steal the hover from the
+    // building actually under the cursor (Headworks). Labels still pick when nothing else does.
+    const isLabel = (o: THREE.Object3D) => (o as THREE.Sprite).isSprite === true;
+    const hits = [...raw.filter((h) => !isLabel(h.object)), ...raw.filter((h) => isLabel(h.object))];
 
     const resolveId = (start: THREE.Object3D | null): string | undefined => {
       let obj: THREE.Object3D | null = start;
@@ -1756,4 +1797,40 @@ export function worldToGroupLocal(dx: number, dz: number, yaw: number): { x: num
  */
 export function majorAxisToLocalRotY(majorYaw: number, groupYaw: number): number {
   return -majorYaw - groupYaw;
+}
+
+/**
+ * Overhead seam fix (v0.3.12): the ortho drape (≈11 m segments) and the DEM terrain (≈9.7 m cells)
+ * interpolate the same ground differently, so terrain creases/vertices poked up to ~1 m through
+ * the drape's +0.3 m lift as thin dark-green lines (visible from straight overhead with fog off).
+ * Under imagery the terrain is never seen, so sink it 2.5 m there, ramping back to true height
+ * over the outer ~1.5 cells so the drape edge still meets the surrounding grass seamlessly.
+ */
+export function sinkTerrainUnderDrape(ground: THREE.Mesh, tiles: THREE.Box3[], depth = 2.5): void {
+  const cover = tiles.filter((b) => !b.isEmpty());
+  if (!cover.length) return;
+  // Union of tile rects (tiles share edges, so a vertex's inset is measured to the union border).
+  const union = cover.reduce((u, b) => u.union(b), new THREE.Box3());
+  const geo = ground.geometry as THREE.BufferGeometry;
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  ground.updateMatrixWorld(true);
+  const inv = ground.matrixWorld.clone().invert();
+  const v = new THREE.Vector3();
+  // Terrain cell size from the first row of vertices.
+  const cell = Math.max(1, Math.abs(pos.getX(1) - pos.getX(0)));
+  const ramp = cell * 1.5;
+  for (let i = 0; i < pos.count; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(ground.matrixWorld);
+    // Skip holes (a tile that failed to load) — only sink where some tile covers the vertex.
+    if (!cover.some((b) => v.x >= b.min.x && v.x <= b.max.x && v.z >= b.min.z && v.z <= b.max.z)) continue;
+    const inset = Math.min(v.x - union.min.x, union.max.x - v.x, v.z - union.min.z, union.max.z - v.z);
+    if (inset <= 0) continue;
+    const k = Math.min(1, inset / ramp);
+    v.y -= depth * k;
+    v.applyMatrix4(inv);
+    pos.setY(i, v.y);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
 }

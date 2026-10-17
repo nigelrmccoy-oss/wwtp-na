@@ -1,17 +1,28 @@
 /**
- * Three.js plant site scene — v0.2: textured units, OSM/DEM surroundings, hover.
+ * Three.js plant site scene — v0.3.10: real-yard asphalt, true-ring walls, siteBounds cam.
  */
 import * as THREE from 'three';
 import type { PlantConfig } from '../sim/processModel';
 import type { PlantTextures } from './textures';
 import {
   concreteMat,
+  weatheredConcreteMat,
   asphaltMat,
   waterMat,
   metalMat,
+  paintedMetalMat,
 } from './textures';
-import { buildTerrainGround, demFromGeoPack } from './terrain';
+import {
+  buildTerrainGround,
+  demFromGeoPack,
+  groundY,
+  computePadGrade,
+  type DemData,
+  type TerrainOpts,
+} from './terrain';
 import { buildOsmSurroundings, type PlantGeoPack } from './osmBake';
+import { buildGisLayout, type FootprintRing, type GisLayoutResult, type GisUnitSnap } from './gisLayout';
+import { mountOrthoUnderlay } from './orthoLayer';
 
 export interface UnitInfo {
   id: string;
@@ -26,6 +37,7 @@ export interface PlantSceneOpts {
   textures: PlantTextures;
   geo: PlantGeoPack | null;
   onHover?: UnitHoverCb;
+  onCamCycleChange?: (label: string) => void;
 }
 
 export class PlantScene {
@@ -35,6 +47,10 @@ export class PlantScene {
   readonly units: UnitInfo[] = [];
   attribution = '';
   demSource = '';
+  gisSummary = '';
+  gisUsed = false;
+  /** unitId → on-screen honesty note for placeholder / invented placements. */
+  readonly estimateNotes: Record<string, string> = {};
 
   private root: THREE.Group;
   private processRoot: THREE.Group;
@@ -44,7 +60,14 @@ export class PlantScene {
   private orbitTarget = new THREE.Vector3(0, 0, 0);
   private orbitDist = 55;
   private mode: 'orbit' | 'walk' = 'orbit';
+  /** V-key cycle: bird's-eye → nadir → walk-through */
+  private camCycle: 0 | 1 | 2 = 0;
   private walkPos = new THREE.Vector3(40, 2.2, 55);
+  private walkInitDone = false;
+  private labelSprites: THREE.Sprite[] = [];
+  private pipeSegs: { x0: number; z0: number; x1: number; z1: number }[] = [];
+  private focusIndex = -1;
+  private onCamCycleChange: ((label: string) => void) | null = null;
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
   private selected: UnitInfo | null = null;
@@ -62,16 +85,27 @@ export class PlantScene {
   private pointerDownY = 0;
   private pointerMoved = false;
   private textures: PlantTextures;
+  private gis: GisLayoutResult | null = null;
+  private dem: DemData | null = null;
+  private orthoDispose: (() => void) | null = null;
+  orthoAttribution = '';
+  /** True once Esri/custom imagery tiles are draped (yard asphalt hidden). */
+  orthoActive = false;
+  private padGrade = 0;
+  private terrainOpts: TerrainOpts = { padW: 110, padD: 80 };
+  private readonly eyeHeight = 1.7;
   private mats: {
     concrete: THREE.MeshStandardMaterial;
     concreteAlt: THREE.MeshStandardMaterial;
+    weathered: THREE.MeshStandardMaterial;
     asphalt: THREE.MeshStandardMaterial;
     walk: THREE.MeshStandardMaterial;
-    water: THREE.MeshStandardMaterial;
-    waterDeep: THREE.MeshStandardMaterial;
+    water: THREE.MeshPhysicalMaterial;
+    waterDeep: THREE.MeshPhysicalMaterial;
     metal: THREE.MeshStandardMaterial;
     digester: THREE.MeshStandardMaterial;
     roof: THREE.MeshStandardMaterial;
+    painted: THREE.MeshStandardMaterial;
   };
 
   constructor(
@@ -85,18 +119,21 @@ export class PlantScene {
     this.onSelect = onSelect;
     this.onModeChange = onModeChange ?? null;
     this.onHover = opts?.onHover ?? null;
+    this.onCamCycleChange = (opts as PlantSceneOpts | undefined)?.onCamCycleChange ?? null;
     this.textures = opts!.textures;
 
     this.mats = {
       concrete: concreteMat(this.textures, 0xffffff),
-      concreteAlt: concreteMat(this.textures, 0xd8dde2),
+      concreteAlt: weatheredConcreteMat(this.textures, 0xe8ecef),
+      weathered: weatheredConcreteMat(this.textures, 0xffffff),
       asphalt: asphaltMat(this.textures),
       walk: asphaltMat(this.textures),
       water: waterMat(this.textures, 0xffffff),
-      waterDeep: waterMat(this.textures, 0xa0c8e0),
+      waterDeep: waterMat(this.textures, 0x8eb8d0),
       metal: metalMat(this.textures, 0xffffff),
-      digester: metalMat(this.textures, 0xc0c4c8),
-      roof: metalMat(this.textures, 0x8890a0),
+      digester: paintedMetalMat(this.textures, 0xd0d4d8),
+      roof: paintedMetalMat(this.textures, 0x8890a0),
+      painted: paintedMetalMat(this.textures, 0xffffff),
     };
     this.mats.walk.color = new THREE.Color(0xb0b4b0);
 
@@ -106,11 +143,13 @@ export class PlantScene {
     this.renderer.setClearColor(0x7aa0c0, 1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0018);
+    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0015);
 
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 900);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 2800);
     this.root = new THREE.Group();
     this.processRoot = new THREE.Group();
     this.processRoot.name = 'process-train';
@@ -136,6 +175,7 @@ export class PlantScene {
       if (this.disposed) return;
       this.animId = requestAnimationFrame(loop);
       this.update(this.clock.getDelta());
+      this.declutterLabels();
       this.renderer.render(this.scene, this.camera);
     };
     loop();
@@ -143,6 +183,8 @@ export class PlantScene {
 
   dispose(): void {
     this.disposed = true;
+    this.orthoDispose?.();
+    this.orthoDispose = null;
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onResize);
     if (this.onKeyDown) window.removeEventListener('keydown', this.onKeyDown);
@@ -161,6 +203,207 @@ export class PlantScene {
     return this.mode;
   }
 
+  getCamCycleLabel(): string {
+    return this.camCycle === 0 ? 'BIRD' : this.camCycle === 1 ? 'NADIR' : 'WALK';
+  }
+
+  /** Pad / orbit state for the corner minimap (not the layout overlay). */
+  getMinimapState(): {
+    pad: { cx: number; cz: number; w: number; d: number };
+    units: { id: string; label: string; x: number; z: number }[];
+    target: { x: number; z: number };
+    cam: { x: number; z: number };
+    yaw: number;
+    pitch: number;
+    orbitDist: number;
+    mode: 'orbit' | 'walk';
+  } {
+    // Minimap frames the full WWTP site when available; asphalt pad is process-only.
+    const site = this.gis?.siteBounds ?? this.gis?.pad ?? {
+      cx: this.terrainOpts.padCx ?? 0,
+      cz: this.terrainOpts.padCz ?? 0,
+      w: this.terrainOpts.padW,
+      d: this.terrainOpts.padD,
+    };
+    const units = this.units
+      .filter((u) => !u.id.startsWith('osm_'))
+      .map((u) => {
+        const c = new THREE.Box3().setFromObject(u.mesh).getCenter(new THREE.Vector3());
+        return { id: u.id, label: u.label, x: c.x, z: c.z };
+      });
+    return {
+      pad: { cx: site.cx, cz: site.cz, w: site.w, d: site.d },
+      units,
+      target: { x: this.orbitTarget.x, z: this.orbitTarget.z },
+      cam: { x: this.camera.position.x, z: this.camera.position.z },
+      yaw: this.yaw,
+      pitch: this.pitch,
+      orbitDist: this.orbitDist,
+      mode: this.mode,
+    };
+  }
+
+  /** Click-pan from minimap: move orbit target (and walk pos) on the pad plane. */
+  panToWorld(x: number, z: number): void {
+    this.orbitTarget.set(x, this.padGrade, z);
+    if (this.mode === 'walk') {
+      this.walkPos.set(x, this.sampleEyeY(x, z), z);
+    }
+  }
+
+  /**
+   * QA snapshot (only reachable via the ?qa debug hook): world placement of every
+   * OSM-footprint-backed mesh vs its source polygon, plus renderer stats.
+   */
+  qaSnapshot(): {
+    footprints: { unitId: string; kind: string; osm: [number, number]; placed: [number, number]; errM: number; areaOsm: number; areaPlaced: number; maxVertexErrM: number | null }[];
+    estimates: Record<string, string>;
+    renderer: { calls: number; triangles: number; geometries: number; textures: number; meshes: number };
+  } {
+    this.scene.updateMatrixWorld(true);
+    const out: ReturnType<PlantScene['qaSnapshot']>['footprints'] = [];
+    const v = new THREE.Vector3();
+    this.processRoot.traverse((o) => {
+      const fp = o.userData.osmFp as
+        | { cx: number; cz: number; area: number; unitId: string; kind: string; r?: number; ring?: number[][] }
+        | undefined;
+      if (!fp) return;
+      o.getWorldPosition(v);
+      let areaPlaced = fp.kind === 'cyl' ? Math.PI * (fp.r ?? 0) ** 2 : 0;
+      let maxVertexErrM: number | null = null;
+      if (fp.kind === 'basin' && fp.ring) {
+        const floor = (o as THREE.Group).children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh | undefined;
+        if (floor) {
+          const pos = floor.geometry.getAttribute('position') as THREE.BufferAttribute;
+          const pts: THREE.Vector3[] = [];
+          let maxY = -Infinity;
+          for (let i = 0; i < pos.count; i++) maxY = Math.max(maxY, pos.getY(i));
+          const idx = floor.geometry.getIndex();
+          const tri = (i: number) => (idx ? idx.getX(i) : i);
+          const n = idx ? idx.count : pos.count;
+          const a = new THREE.Vector3();
+          const b = new THREE.Vector3();
+          const c = new THREE.Vector3();
+          areaPlaced = 0;
+          for (let i = 0; i < n; i += 3) {
+            a.fromBufferAttribute(pos, tri(i));
+            b.fromBufferAttribute(pos, tri(i + 1));
+            c.fromBufferAttribute(pos, tri(i + 2));
+            if (Math.abs(a.y - maxY) > 1e-3 || Math.abs(b.y - maxY) > 1e-3 || Math.abs(c.y - maxY) > 1e-3) continue;
+            areaPlaced += Math.abs((b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)) / 2;
+          }
+          for (let i = 0; i < pos.count; i++) {
+            if (Math.abs(pos.getY(i) - maxY) > 1e-3) continue;
+            pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(floor.matrixWorld));
+          }
+          maxVertexErrM = 0;
+          for (const [rx, rz] of fp.ring) {
+            let best = Infinity;
+            for (const p of pts) best = Math.min(best, Math.hypot(p.x - rx, p.z - rz));
+            maxVertexErrM = Math.max(maxVertexErrM, best);
+          }
+        }
+      }
+      out.push({
+        unitId: fp.unitId,
+        kind: fp.kind,
+        osm: [fp.cx, fp.cz],
+        placed: [v.x, v.z],
+        errM: Math.hypot(v.x - fp.cx, v.z - fp.cz),
+        areaOsm: fp.area,
+        areaPlaced,
+        maxVertexErrM,
+      });
+    });
+    let meshes = 0;
+    this.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshes++;
+    });
+    const info = this.renderer.info;
+    return {
+      footprints: out,
+      estimates: { ...this.estimateNotes },
+      renderer: {
+        calls: info.render.calls,
+        triangles: info.render.triangles,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        meshes,
+      },
+    };
+  }
+
+  /** Project process-train unit centres to canvas CSS pixels for the layout overlay. */
+  getOverlayAnchors(canvas: HTMLCanvasElement): { id: string; label: string; x: number; y: number }[] {
+    const rect = canvas.getBoundingClientRect();
+    const out: { id: string; label: string; x: number; y: number }[] = [];
+    const v = new THREE.Vector3();
+    for (const u of this.units) {
+      if (u.id.startsWith('osm_') && u.id !== 'osm_wwtp') continue;
+      const box = new THREE.Box3().setFromObject(u.mesh);
+      box.getCenter(v);
+      v.y = box.max.y + 1.5;
+      v.project(this.camera);
+      const x = (v.x * 0.5 + 0.5) * rect.width;
+      const y = (-v.y * 0.5 + 0.5) * rect.height;
+      if (v.z < 1 && x > -40 && y > -40 && x < rect.width + 40 && y < rect.height + 40) {
+        out.push({ id: u.id, label: u.label, x, y });
+      }
+    }
+    return out;
+  }
+
+  /** Focus orbit/walk on a unit (F key / Tab cycle). */
+  focusUnit(unit: UnitInfo | null): void {
+    if (!unit) return;
+    this.setSelected(unit);
+    const box = new THREE.Box3().setFromObject(unit.mesh);
+    const c = box.getCenter(new THREE.Vector3());
+    this.orbitTarget.copy(c);
+    this.orbitTarget.y = this.padGrade;
+    this.walkPos.set(c.x + 12, this.sampleEyeY(c.x + 12, c.z + 16), c.z + 16);
+    this.walkInitDone = true;
+    if (this.mode === 'walk') this.faceProcess(c);
+    if (this.mode === 'orbit' && this.camCycle !== 1) {
+      this.orbitDist = clamp(Math.max(box.getSize(new THREE.Vector3()).length() * 1.8, 28), 22, 520);
+      this.pitch = -0.55;
+    }
+  }
+
+  cycleUnitFocus(): UnitInfo | null {
+    const playable = this.units.filter((u) => !u.id.startsWith('osm_'));
+    if (!playable.length) return null;
+    this.focusIndex = (this.focusIndex + 1) % playable.length;
+    const u = playable[this.focusIndex];
+    this.focusUnit(u);
+    return u;
+  }
+
+  cycleCameraView(): string {
+    this.camCycle = ((this.camCycle + 1) % 3) as 0 | 1 | 2;
+    const s = this.plant.layoutScale;
+    const frame = this.gis?.siteBounds ?? this.gis?.pad;
+    const span = this.gisUsed && frame ? Math.max(frame.w, frame.d) : 55 + 36 * s;
+    if (this.camCycle === 0) {
+      this.mode = 'orbit';
+      this.pitch = -0.92;
+      // Bird's-eye must clear full Waterloo/Kitchener GIS pads (span can exceed 700 m)
+      this.orbitDist = clamp(span * 0.95, 40, 620);
+      this.yaw = 0.55;
+    } else if (this.camCycle === 1) {
+      this.mode = 'orbit';
+      this.pitch = -1.52;
+      this.orbitDist = clamp(span * 0.85, 36, 580);
+    } else {
+      this.mode = 'walk';
+      this.enterWalk();
+    }
+    this.onModeChange?.(this.mode);
+    const label = this.getCamCycleLabel();
+    this.onCamCycleChange?.(label);
+    return label;
+  }
+
   private onResize = (): void => {
     const canvas = this.renderer.domElement;
     const w = canvas.clientWidth || window.innerWidth;
@@ -171,42 +414,99 @@ export class PlantScene {
   };
 
   private buildEnvironment(geo: PlantGeoPack | null): void {
-    const hemi = new THREE.HemisphereLight(0xd0e8ff, 0x3a4a28, 0.95);
+    const hemi = new THREE.HemisphereLight(0xd8eaff, 0x3a4a28, 0.85);
     this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff2d6, 1.15);
-    sun.position.set(70, 100, 45);
+    const sun = new THREE.DirectionalLight(0xfff2d6, 1.35);
+    sun.position.set(90, 120, 55);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 10;
-    sun.shadow.camera.far = 320;
-    sun.shadow.camera.left = -140;
-    sun.shadow.camera.right = 140;
-    sun.shadow.camera.top = 140;
-    sun.shadow.camera.bottom = -140;
+    sun.shadow.camera.far = 420;
+    sun.shadow.camera.left = -200;
+    sun.shadow.camera.right = 200;
+    sun.shadow.camera.top = 200;
+    sun.shadow.camera.bottom = -200;
     sun.shadow.bias = -0.0002;
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xb0c8e0, 0.25);
-    fill.position.set(-40, 30, -20);
+    const fill = new THREE.DirectionalLight(0xb0c8e0, 0.28);
+    fill.position.set(-50, 40, -30);
     this.scene.add(fill);
+    // Soft ground bounce
+    const bounce = new THREE.AmbientLight(0x607080, 0.18);
+    this.scene.add(bounce);
+
+    this.gis = buildGisLayout(geo, this.plant.id, {
+      primary: this.plant.primaryClarifierCount,
+      secondary: this.plant.secondaryClarifierCount,
+      aeration: this.plant.aerationBasinCount,
+      hasPrimary: this.plant.hasPrimary,
+      hasOxidationDitch: this.plant.hasOxidationDitch,
+      disinfection: this.plant.disinfectionType,
+      uvBanks: this.plant.uvBanks,
+      chlorineChannels: this.plant.chlorineContactCount,
+    });
+    this.gisUsed = this.gis.used;
+    this.gisSummary = this.gis.summary;
 
     const size = this.plant.size;
-    const padW =
+    const schematicPadW =
       (size === 'xlarge' || size === 'extra-large' ? 140 : size === 'large' ? 125 : 110) *
       this.plant.layoutScale;
-    const padD =
+    const schematicPadD =
       (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) *
       this.plant.layoutScale;
 
-    const dem = demFromGeoPack(geo);
-    this.root.add(buildTerrainGround(this.plant.id, dem, this.textures, padW, padD));
+    // Asphalt = process yard only; siteBounds = full WWTP (camera / minimap / context).
+    const padW = this.gis.pad?.w ?? schematicPadW;
+    const padD = this.gis.pad?.d ?? schematicPadD;
+    const padCx = this.gis.pad?.cx ?? 0;
+    const padCz = this.gis.pad?.cz ?? 0;
+    const siteW = this.gis.siteBounds?.w ?? padW;
+    const siteD = this.gis.siteBounds?.d ?? padD;
+    const terrainSizeM = Math.max(1500, Math.min(2000, Math.max(siteW, siteD) * 2.4 + 400));
 
-    const osm = buildOsmSurroundings(geo, this.textures, this.plant.id);
+    const dem = demFromGeoPack(geo);
+    this.dem = dem;
+    const padGrade = computePadGrade(dem, this.plant.id, padCx, padCz, padW, padD);
+    this.padGrade = padGrade;
+    this.terrainOpts = {
+      padW,
+      padD,
+      padCx,
+      padCz,
+      waterMasks: this.gis.waterMasks,
+      flattenPad: true,
+      padSkirtM: 18,
+      padGrade,
+      terrainSizeM,
+    };
+    const terrain = buildTerrainGround(this.plant.id, dem, this.textures, this.terrainOpts);
+    this.root.add(terrain.group);
+
+    // Process units share the asphalt yard datum
+    this.processRoot.position.y = padGrade;
+
+    const orthoFrameSrc = this.gis?.siteBounds ?? this.gis?.pad;
+    const orthoHalf = Math.min(
+      900,
+      Math.max(400, ((orthoFrameSrc?.w ?? padW) + (orthoFrameSrc?.d ?? padD)) * 0.55),
+    );
+    const orthoCx = orthoFrameSrc?.cx ?? padCx;
+    const orthoCz = orthoFrameSrc?.cz ?? padCz;
+    const osm = buildOsmSurroundings(geo, this.textures, this.plant.id, {
+      terrain: this.terrainOpts,
+      processYard: { cx: padCx, cz: padCz, w: padW, d: padD },
+      maxBuildings: 320,
+      maxRoads: 400,
+      orthoFrame: geo?.origin ? { cx: orthoCx, cz: orthoCz, half: orthoHalf } : undefined,
+    });
     this.attribution = osm.attribution;
     this.demSource = geo?.dem?.source || geo?.attribution?.dem || osm.attribution;
     this.root.add(osm.group);
 
-    // Align process train toward OSM WWTP footprint when present
-    if (osm.wwtpCentroid && osm.wwtpCentroid.length() < 180) {
+    // When GIS snap is active, units are in bake ENU metres — no schematic offset.
+    // Otherwise nudge schematic train toward WWTP footprint.
+    if (!this.gisUsed && osm.wwtpCentroid && osm.wwtpCentroid.length() < 180) {
       const offset = osm.wwtpCentroid.clone().multiplyScalar(0.35);
       this.processRoot.position.x += offset.x;
       this.processRoot.position.z += offset.z;
@@ -216,9 +516,536 @@ export class PlantScene {
     for (const h of osm.hoverables) {
       this.units.push({ id: h.id, label: h.label, mesh: h.mesh });
     }
+
+    // Tiles-lite attributed ortho draped on the ground (Esri / custom URL; never Google/Apple/SV).
+    // v0.3.11: once imagery loads, the full-yard asphalt sheet and flat OSM fills inside the
+    // imagery frame are hidden so the real site shows through; placeholders keep tight aprons.
+    if (geo?.origin) {
+      const terrainForDrape: TerrainOpts = { ...this.terrainOpts, padGrade };
+      void mountOrthoUnderlay({
+        origin: geo.origin,
+        cx: orthoCx,
+        cz: orthoCz,
+        halfExtentM: orthoHalf,
+        y: padGrade,
+        host: document.getElementById('app'),
+        heightAt: (x, z) => groundY(x, z, dem, this.plant.id, terrainForDrape),
+      }).then((ortho) => {
+        if (this.disposed) {
+          ortho.dispose();
+          return;
+        }
+        this.root.add(ortho.group);
+        this.orthoDispose = ortho.dispose;
+        this.orthoAttribution = ortho.attribution;
+        if (ortho.group.children.length > 0) {
+          const padMesh = terrain.group.getObjectByName('site-pad');
+          if (padMesh) padMesh.visible = false;
+          const fills = osm.group.getObjectByName('osm-fills-ortho');
+          if (fills) fills.visible = false;
+          this.orthoActive = true;
+        }
+      });
+    }
   }
 
   private buildPlantLayout(): void {
+    if (this.gisUsed && this.gis) {
+      this.buildGisPlantLayout(this.gis);
+      return;
+    }
+    this.buildSchematicPlantLayout();
+  }
+
+  private buildGisPlantLayout(gis: GisLayoutResult): void {
+    for (const snap of gis.snaps) {
+      const group = this.meshFromGisSnap(snap);
+      if (!group) continue;
+      group.position.set(snap.x, 0, snap.z);
+      group.rotation.y = snap.yaw;
+      group.userData.unitId = snap.id;
+      const shownLabel = snap.estimated ? `${snap.label} (est.)` : snap.label;
+      if (snap.estimated) this.estimateNotes[snap.id] = snap.estimateNote ?? 'Estimated placement, not from OSM';
+      const label = this.makeLabel(shownLabel);
+      label.position.set(0, 10, 0);
+      group.add(label);
+      if (!snap.footprints.length) this.addApron(group, snap);
+      this.processRoot.add(group);
+      this.units.push({ id: snap.id, label: shownLabel, mesh: group });
+    }
+
+    // Process piping + outfall from GIS hints
+    this.addPiping(gis.pipingHints);
+    if (gis.outfallHint) {
+      this.addOutfall(gis.outfallHint.x, gis.outfallHint.z, gis.outfallHint.yaw);
+    }
+
+    const frame = gis.siteBounds ?? gis.pad;
+    if (frame) {
+      this.orbitTarget.set(frame.cx, this.padGrade, frame.cz);
+      const asphalt = gis.pad ?? frame;
+      const wx = asphalt.cx + Math.min(40, asphalt.w * 0.15);
+      const wz = asphalt.cz + Math.min(55, asphalt.d * 0.2);
+      this.walkPos.set(wx, this.sampleEyeY(wx, wz), wz);
+      this.orbitDist = clamp(Math.max(frame.w, frame.d) * 0.85, 40, 600);
+      this.pitch = -0.85;
+    }
+  }
+
+  /** Tight asphalt apron under a schematic building / channel (sits above the ortho drape). */
+  private addApron(group: THREE.Group, snap: GisUnitSnap): void {
+    group.updateWorldMatrix(true, true);
+    const box = new THREE.Box3();
+    group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && o.name !== 'apron') box.expandByObject(o);
+    });
+    if (box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    const w = size.x + 10;
+    const d = size.z + 10;
+    const mat = this.mats.asphalt.clone();
+    mat.polygonOffset = true;
+    mat.polygonOffsetFactor = -3;
+    mat.polygonOffsetUnits = -6;
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+    apron.rotation.x = -Math.PI / 2;
+    const c = box.getCenter(new THREE.Vector3());
+    group.worldToLocal(c);
+    apron.position.set(c.x, 0.42, c.z);
+    apron.receiveShadow = true;
+    apron.userData.unitId = snap.id;
+    apron.name = 'apron';
+    group.add(apron);
+  }
+
+  private meshFromGisSnap(snap: GisUnitSnap): THREE.Group | null {
+    const group = new THREE.Group();
+    if (snap.kind === 'cyl' && snap.footprints.length) {
+      for (const fp of snap.footprints) {
+        const r = Math.sqrt(fp.area / Math.PI);
+        const lx = fp.cx - snap.x;
+        const lz = fp.cz - snap.z;
+        // Un-rotate into group local frame (inverse of Three.js rotation.y = snap.yaw)
+        const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
+        const before = group.children.length;
+        this.addWalledClarifier(group, px, pz, r, snap.id === 'digesters' ? 5.5 : 3.2, snap.id);
+        // QA: tag the shell so harnesses can compare world centroid vs OSM footprint
+        group.children[before].userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'cyl', r };
+      }
+      return group;
+    }
+    if (snap.kind === 'basin' && snap.footprints.length) {
+      for (const fp of snap.footprints) {
+        const lx = fp.cx - snap.x;
+        const lz = fp.cz - snap.z;
+        const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
+        // Extrude true footprint ring (fixes AABB×0.92 ~1.9× area oversize)
+        const before = group.children.length;
+        this.addFootprintBasin(group, fp, px, pz, 3.4, snap.id, snap.yaw);
+        const added = group.children[before];
+        if (added) added.userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'basin', ring: fp.ring };
+      }
+      return group;
+    }
+    if (snap.kind === 'ditch') {
+      const R = Math.max(8, (snap.widthM ?? 20) * 0.28);
+      const tube = Math.max(2.5, (snap.depthM ?? 12) * 0.12);
+      const ditch = new THREE.Mesh(new THREE.TorusGeometry(R, tube, 14, 48), this.mats.weathered);
+      ditch.rotation.x = Math.PI / 2;
+      ditch.position.y = 1.4;
+      ditch.castShadow = true;
+      ditch.userData.unitId = snap.id;
+      group.add(ditch);
+      const water = new THREE.Mesh(new THREE.TorusGeometry(R, tube * 0.82, 12, 48), this.mats.waterDeep);
+      water.rotation.x = Math.PI / 2;
+      water.position.y = 1.7;
+      water.userData.unitId = snap.id;
+      group.add(water);
+      return group;
+    }
+    if (snap.kind === 'uv') {
+      this.addUvChannel(group, snap.count, snap.id);
+      return group;
+    }
+    if (snap.kind === 'chlorine') {
+      this.addChlorineContact(group, snap.count, snap.id);
+      return group;
+    }
+    // Buildings (headworks / solids)
+    const w = snap.id === 'solids' ? 22 : 16;
+    const d = snap.id === 'solids' ? 14 : 12;
+    const h = snap.id === 'solids' ? 7 : 5.5;
+    const building = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.mats.weathered);
+    building.position.y = h / 2;
+    building.castShadow = true;
+    building.receiveShadow = true;
+    building.userData.unitId = snap.id;
+    group.add(building);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.4, d + 0.6), this.mats.roof);
+    roof.position.y = h + 0.15;
+    roof.userData.unitId = snap.id;
+    group.add(roof);
+    return group;
+  }
+
+  /** Photoreal open-walled clarifier: concrete shell + floor + reflective water + metal weir. */
+  private addWalledClarifier(
+    group: THREE.Group,
+    px: number,
+    pz: number,
+    r: number,
+    h: number,
+    unitId: string,
+  ): void {
+    const wallMat = this.mats.weathered.clone();
+    wallMat.side = THREE.DoubleSide;
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 48, 1, true), wallMat);
+    wall.position.set(px, h / 2, pz);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    wall.userData.unitId = unitId;
+    group.add(wall);
+
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(r * 0.99, 48), this.mats.concrete);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(px, 0.06, pz);
+    floor.receiveShadow = true;
+    floor.userData.unitId = unitId;
+    group.add(floor);
+
+    const waterH = h * 0.78;
+    // Surface disc (reads wet from above) + volume cylinder
+    const waterVol = new THREE.Mesh(
+      new THREE.CylinderGeometry(r * 0.94, r * 0.94, waterH, 48),
+      this.mats.waterDeep,
+    );
+    waterVol.position.set(px, waterH / 2 + 0.08, pz);
+    waterVol.userData.unitId = unitId;
+    group.add(waterVol);
+
+    const surface = new THREE.Mesh(new THREE.CircleGeometry(r * 0.93, 48), this.mats.water);
+    surface.rotation.x = -Math.PI / 2;
+    surface.position.set(px, waterH + 0.1, pz);
+    surface.userData.unitId = unitId;
+    group.add(surface);
+
+    const rim = new THREE.Mesh(new THREE.RingGeometry(r * 0.94, r * 1.04, 48), this.mats.concrete);
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.set(px, h - 0.04, pz);
+    rim.userData.unitId = unitId;
+    group.add(rim);
+
+    // Walkway / launder ring
+    const launder = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 0.88, 0.18, 8, 48),
+      this.mats.metal,
+    );
+    launder.rotation.x = Math.PI / 2;
+    launder.position.set(px, h * 0.92, pz);
+    launder.userData.unitId = unitId;
+    group.add(launder);
+
+    // Centre bridge
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(r * 1.7, 0.25, 1.1), this.mats.painted);
+    bridge.position.set(px, h + 0.15, pz);
+    bridge.castShadow = true;
+    bridge.userData.unitId = unitId;
+    group.add(bridge);
+  }
+
+  /**
+   * Extrude a basin from the real FootprintRing polygon (local to snap group).
+   * True-ring walls follow the OSM perimeter (edge tubes) — no OBB box frames.
+   * Falls back to rectangular open basin only if the ring is degenerate.
+   */
+  private addFootprintBasin(
+    group: THREE.Group,
+    fp: FootprintRing,
+    px: number,
+    pz: number,
+    h: number,
+    unitId: string,
+    snapYaw: number,
+  ): void {
+    const g = new THREE.Group();
+    g.position.set(px, 0, pz);
+
+    const shape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw);
+    if (!shape) {
+      this.addOpenBasin(group, px, pz, fp.obbWidth, fp.obbDepth, h, unitId, majorAxisToLocalRotY(fp.yaw, snapYaw));
+      return;
+    }
+
+    // Floor slab — true ring
+    const floorGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.25, bevelEnabled: false, curveSegments: 2 });
+    floorGeo.rotateX(-Math.PI / 2);
+    const floor = new THREE.Mesh(floorGeo, this.mats.concrete);
+    floor.position.y = 0.02;
+    floor.receiveShadow = true;
+    floor.userData.unitId = unitId;
+    g.add(floor);
+
+    // True-ring walls: edge tubes along the footprint perimeter (kill OBB dual-mesh frames)
+    this.addRingWalls(g, fp.ring, fp.cx, fp.cz, snapYaw, h, unitId);
+
+    const waterH = h * 0.72;
+    const waterShape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw, 0.92);
+    if (waterShape) {
+      const waterGeo = new THREE.ExtrudeGeometry(waterShape, {
+        depth: waterH,
+        bevelEnabled: false,
+        curveSegments: 2,
+      });
+      waterGeo.rotateX(-Math.PI / 2);
+      const waterVol = new THREE.Mesh(waterGeo, this.mats.waterDeep);
+      waterVol.position.y = 0.2;
+      waterVol.userData.unitId = unitId;
+      g.add(waterVol);
+
+      const surfGeo = new THREE.ShapeGeometry(waterShape);
+      surfGeo.rotateX(-Math.PI / 2);
+      const surface = new THREE.Mesh(surfGeo, this.mats.water);
+      surface.position.y = waterH + 0.22;
+      surface.userData.unitId = unitId;
+      g.add(surface);
+    }
+
+    // Diffuser baffle hints along OBB (interior only — not walls)
+    const yawLocal = majorAxisToLocalRotY(fp.yaw, snapYaw);
+    const baffles = new THREE.Group();
+    baffles.rotation.y = yawLocal;
+    for (let i = 0; i < 3; i++) {
+      const baffle = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, h * 0.55, fp.obbDepth * 0.7),
+        this.mats.concreteAlt,
+      );
+      baffle.position.set(-fp.obbWidth * 0.25 + i * (fp.obbWidth * 0.25), h * 0.35, 0);
+      baffle.userData.unitId = unitId;
+      baffles.add(baffle);
+    }
+    g.add(baffles);
+
+    group.add(g);
+  }
+
+  /** Perimeter wall segments following an OSM ring (local to footprint group). */
+  private addRingWalls(
+    parent: THREE.Group,
+    ring: number[][],
+    cx: number,
+    cz: number,
+    snapYaw: number,
+    h: number,
+    unitId: string,
+  ): void {
+    const n =
+      ring.length -
+      (ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0);
+    if (n < 3) return;
+    const t = 0.45;
+    const wallMat = this.mats.weathered;
+    const toLocal = (x: number, z: number) => worldToGroupLocal(x - cx, z - cz, snapYaw);
+    for (let i = 0; i < n; i++) {
+      const a = toLocal(ring[i][0], ring[i][1]);
+      const b = toLocal(ring[(i + 1) % n][0], ring[(i + 1) % n][1]);
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.4) continue;
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(t, h, len + t * 0.5), wallMat);
+      wall.position.set((a.x + b.x) / 2, h / 2, (a.z + b.z) / 2);
+      wall.rotation.y = Math.atan2(dx, dz);
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      wall.userData.unitId = unitId;
+      parent.add(wall);
+    }
+  }
+
+  private addOpenBasin(
+    group: THREE.Group,
+    px: number,
+    pz: number,
+    w: number,
+    d: number,
+    h: number,
+    unitId: string,
+    yaw = 0,
+  ): void {
+    const g = new THREE.Group();
+    g.position.set(px, 0, pz);
+    g.rotation.y = yaw;
+
+    // Floor
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 0.25, d), this.mats.concrete);
+    floor.position.y = 0.12;
+    floor.receiveShadow = true;
+    floor.userData.unitId = unitId;
+    g.add(floor);
+
+    // Four walls (open top)
+    const t = 0.45;
+    const wallMat = this.mats.weathered;
+    const walls: [number, number, number, number, number, number][] = [
+      [w, h, t, 0, h / 2, d / 2],
+      [w, h, t, 0, h / 2, -d / 2],
+      [t, h, d, w / 2, h / 2, 0],
+      [t, h, d, -w / 2, h / 2, 0],
+    ];
+    for (const [bw, bh, bd, x, y, z] of walls) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), wallMat);
+      wall.position.set(x, y, z);
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+      wall.userData.unitId = unitId;
+      g.add(wall);
+    }
+
+    const waterH = h * 0.72;
+    const waterVol = new THREE.Mesh(
+      new THREE.BoxGeometry(w - t * 2.2, waterH, d - t * 2.2),
+      this.mats.waterDeep,
+    );
+    waterVol.position.y = waterH / 2 + 0.2;
+    waterVol.userData.unitId = unitId;
+    g.add(waterVol);
+
+    const surface = new THREE.Mesh(
+      new THREE.PlaneGeometry(w - t * 2.4, d - t * 2.4),
+      this.mats.water,
+    );
+    surface.rotation.x = -Math.PI / 2;
+    surface.position.y = waterH + 0.22;
+    surface.userData.unitId = unitId;
+    g.add(surface);
+
+    // Diffuser / baffle hints
+    for (let i = 0; i < 3; i++) {
+      const baffle = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, h * 0.55, d * 0.7),
+        this.mats.concreteAlt,
+      );
+      baffle.position.set(-w * 0.25 + i * (w * 0.25), h * 0.35, 0);
+      baffle.userData.unitId = unitId;
+      g.add(baffle);
+    }
+
+    group.add(g);
+  }
+
+  private addUvChannel(group: THREE.Group, count: number, unitId: string): void {
+    const channel = new THREE.Mesh(
+      new THREE.BoxGeometry(10 + count * 1.5, 2.2, 6),
+      this.mats.weathered,
+    );
+    channel.position.y = 1.1;
+    channel.castShadow = true;
+    channel.userData.unitId = unitId;
+    group.add(channel);
+    const water = new THREE.Mesh(new THREE.BoxGeometry(9 + count * 1.4, 0.12, 5), this.mats.water);
+    water.position.set(0, 1.95, 0);
+    water.userData.unitId = unitId;
+    group.add(water);
+    for (let i = 0; i < count; i++) {
+      const lamp = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.3, 5),
+        new THREE.MeshStandardMaterial({
+          color: 0xaaccff,
+          emissive: 0x3355aa,
+          emissiveIntensity: 0.45,
+          map: this.textures.metal,
+          metalness: 0.5,
+          roughness: 0.3,
+        }),
+      );
+      lamp.position.set(-3 + i * 2.2, 2.0, 0);
+      lamp.userData.unitId = unitId;
+      group.add(lamp);
+    }
+  }
+
+  private addChlorineContact(group: THREE.Group, count: number, unitId: string): void {
+    const n = Math.max(1, count);
+    const channel = new THREE.Mesh(new THREE.BoxGeometry(10 + n * 1.2, 2.4, 8), this.mats.weathered);
+    channel.position.y = 1.2;
+    channel.castShadow = true;
+    channel.userData.unitId = unitId;
+    group.add(channel);
+    for (let i = 0; i < n; i++) {
+      const baffle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.6, 6.5), this.mats.concrete);
+      baffle.position.set(-3.5 + i * 2.4, 1.5, 0);
+      baffle.userData.unitId = unitId;
+      group.add(baffle);
+    }
+    const water = new THREE.Mesh(new THREE.BoxGeometry(9 + n * 1.1, 0.12, 7), this.mats.water);
+    water.position.set(0, 2.15, 0);
+    water.userData.unitId = unitId;
+    group.add(water);
+  }
+
+  private addPiping(hints: { x0: number; z0: number; x1: number; z1: number }[]): void {
+    const mat = this.mats.painted.clone();
+    mat.color = new THREE.Color(0x5a6a4a);
+    const chevronMat = new THREE.MeshStandardMaterial({
+      color: 0xc8e878,
+      emissive: 0x3a5020,
+      emissiveIntensity: 0.35,
+      metalness: 0.2,
+      roughness: 0.55,
+    });
+    for (const seg of hints) {
+      const dx = seg.x1 - seg.x0;
+      const dz = seg.z1 - seg.z0;
+      const len = Math.hypot(dx, dz);
+      if (len < 2) continue;
+      this.pipeSegs.push({ x0: seg.x0, z0: seg.z0, x1: seg.x1, z1: seg.z1 });
+      const dir = new THREE.Vector3(dx, 0, dz).normalize();
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, len, 10), mat);
+      pipe.position.set((seg.x0 + seg.x1) / 2, 1.1, (seg.z0 + seg.z1) / 2);
+      pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      pipe.castShadow = true;
+      this.processRoot.add(pipe);
+      // Supports
+      const mid = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.0, 0.35), this.mats.concrete);
+      mid.position.set((seg.x0 + seg.x1) / 2, 0.5, (seg.z0 + seg.z1) / 2);
+      this.processRoot.add(mid);
+      // Flow-direction chevrons along the pipe (process → downstream)
+      const nChev = Math.max(1, Math.min(6, Math.floor(len / 14)));
+      for (let i = 0; i < nChev; i++) {
+        const t = (i + 1) / (nChev + 1);
+        const cx = seg.x0 + dx * t;
+        const cz = seg.z0 + dz * t;
+        const chev = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.4, 4), chevronMat);
+        chev.position.set(cx, 1.85, cz);
+        chev.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        chev.userData.pipeChevron = true;
+        this.processRoot.add(chev);
+      }
+    }
+  }
+
+  private addOutfall(x: number, z: number, yaw: number): void {
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = yaw;
+    const channel = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, 22), this.mats.waterDeep);
+    channel.position.set(0, 0.35, 8);
+    g.add(channel);
+    const wallL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.4, 22), this.mats.weathered);
+    wallL.position.set(-3.2, 0.7, 8);
+    g.add(wallL);
+    const wallR = wallL.clone();
+    wallR.position.x = 3.2;
+    g.add(wallR);
+    const label = this.makeLabel('Outfall');
+    label.position.set(0, 5, 10);
+    g.add(label);
+    g.userData.unitId = 'outfall';
+    this.processRoot.add(g);
+    this.units.push({ id: 'outfall', label: 'Outfall', mesh: g });
+  }
+
+  private buildSchematicPlantLayout(): void {
     const s = this.plant.layoutScale;
     const size = this.plant.size;
     const roadMat = this.mats.asphalt;
@@ -247,10 +1074,10 @@ export class PlantScene {
     const units: { id: string; label: string; kind: string; x: number; z: number; count: number }[] =
       this.plant.isSeptic
         ? [
-            { id: 'house', label: 'Farmhouse', kind: 'rect', x: -22, z: 8, count: 1 },
-            { id: 'septic_tank', label: 'Septic Tank', kind: 'basin', x: -4, z: -2, count: 1 },
-            { id: 'pump', label: 'Effluent Pump', kind: 'rect', x: 10, z: -2, count: 1 },
-            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'basin', x: 28, z: -6, count: 1 },
+            { id: 'house', label: 'Farmhouse', kind: 'rect', x: -28, z: 10, count: 1 },
+            { id: 'septic_tank', label: 'Septic Tank', kind: 'septic_tank', x: -12, z: 4, count: 1 },
+            { id: 'distribution', label: 'Distribution Box', kind: 'dbox', x: 8, z: 2, count: 1 },
+            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'leach', x: 48, z: 28, count: 1 },
           ]
         : [
             { id: 'headworks', label: 'Headworks', kind: 'rect', x: -38, z: -8, count: 1 },
@@ -328,22 +1155,65 @@ export class PlantScene {
           const row = Math.floor(i / perRow);
           const col = i % perRow;
           const r = (u.id === 'digesters' ? 4.2 : 3.6) * Math.min(1.15, s);
-          const h = u.id === 'digesters' ? 5.5 : 2.4;
-          const mesh = new THREE.Mesh(
-            new THREE.CylinderGeometry(r, r * (u.id === 'digesters' ? 0.85 : 1), h, 24),
-            u.id === 'digesters' ? this.mats.digester : this.mats.concrete,
-          );
-          mesh.position.set((col - (perRow - 1) / 2) * spacing, h / 2, row * spacing * 0.85);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          mesh.userData.unitId = u.id;
-          group.add(mesh);
-          if (u.id !== 'digesters') {
-            const water = new THREE.Mesh(new THREE.CircleGeometry(r * 0.92, 24), this.mats.water);
-            water.rotation.x = -Math.PI / 2;
-            water.position.set(mesh.position.x, h - 0.25, mesh.position.z);
-            group.add(water);
+          const h = u.id === 'digesters' ? 5.5 : 2.8;
+          const px = (col - (perRow - 1) / 2) * spacing;
+          const pz = row * spacing * 0.85;
+          if (u.id === 'digesters') {
+            const mesh = new THREE.Mesh(
+              new THREE.CylinderGeometry(r, r * 0.85, h, 24),
+              this.mats.digester,
+            );
+            mesh.position.set(px, h / 2, pz);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.userData.unitId = u.id;
+            group.add(mesh);
+          } else {
+            this.addWalledClarifier(group, px, pz, r, h, u.id);
           }
+        }
+      } else if (u.kind === 'septic_tank') {
+        const tank = new THREE.Mesh(new THREE.BoxGeometry(7.5, 2.2, 3.4), this.mats.concrete);
+        tank.position.set(0, 0.55, 0);
+        tank.castShadow = true;
+        tank.receiveShadow = true;
+        tank.userData.unitId = u.id;
+        group.add(tank);
+        for (const lx of [-1.8, 1.8]) {
+          const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.18, 16), this.mats.concreteAlt);
+          lid.position.set(lx, 1.75, 0);
+          lid.userData.unitId = u.id;
+          group.add(lid);
+        }
+        const riser = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.35, 1.2), this.mats.concreteAlt);
+        riser.position.set(0, 1.85, 0);
+        riser.userData.unitId = u.id;
+        group.add(riser);
+      } else if (u.kind === 'dbox') {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), this.mats.concrete);
+        box.position.y = 0.35;
+        box.castShadow = true;
+        box.userData.unitId = u.id;
+        group.add(box);
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 2.0), this.mats.concreteAlt);
+        lid.position.y = 0.86;
+        lid.userData.unitId = u.id;
+        group.add(lid);
+      } else if (u.kind === 'leach') {
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(22, 0.18, 16), this.mats.walk);
+        pad.position.y = 0.12;
+        pad.receiveShadow = true;
+        pad.userData.unitId = u.id;
+        group.add(pad);
+        for (let t = 0; t < 6; t++) {
+          const trench = new THREE.Mesh(new THREE.BoxGeometry(18, 0.22, 0.85), this.mats.asphalt);
+          trench.position.set(0, 0.28, -6 + t * 2.4);
+          trench.userData.unitId = u.id;
+          group.add(trench);
+          const gravel = new THREE.Mesh(new THREE.BoxGeometry(18, 0.08, 0.55), this.mats.concreteAlt);
+          gravel.position.set(0, 0.4, -6 + t * 2.4);
+          gravel.userData.unitId = u.id;
+          group.add(gravel);
         }
       } else if (u.kind === 'ditch') {
         const ditch = new THREE.Mesh(
@@ -370,63 +1240,19 @@ export class PlantScene {
         }
       } else if (u.kind === 'basin') {
         const n = Math.max(1, u.count);
-        const w = u.id === 'tertiary' ? 5 : 6.5;
-        const d = u.id === 'tertiary' ? 10 : 14;
+        const w = u.id === 'tertiary' ? 5 : 8;
+        const d = u.id === 'tertiary' ? 10 : 16;
         for (let i = 0; i < n; i++) {
-          const basin = new THREE.Mesh(new THREE.BoxGeometry(w, 2.8, d), this.mats.concreteAlt);
-          basin.position.set((i - (n - 1) / 2) * (w + 1.2), 1.4, 0);
-          basin.castShadow = true;
-          basin.userData.unitId = u.id;
-          group.add(basin);
-          const water = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.15, d * 0.9), this.mats.waterDeep);
-          water.position.set(basin.position.x, 2.5, 0);
-          group.add(water);
+          this.addOpenBasin(group, (i - (n - 1) / 2) * (w + 1.8), 0, w, d, 2.8, u.id);
         }
       } else if (u.kind === 'uv') {
-        const channel = new THREE.Mesh(
-          new THREE.BoxGeometry(10 + u.count * 1.5, 2.2, 6),
-          this.mats.concreteAlt,
-        );
-        channel.position.y = 1.1;
-        channel.castShadow = true;
-        channel.userData.unitId = u.id;
-        group.add(channel);
-        for (let i = 0; i < u.count; i++) {
-          const lamp = new THREE.Mesh(
-            new THREE.BoxGeometry(0.4, 0.3, 5),
-            new THREE.MeshStandardMaterial({
-              color: 0xaaccff,
-              emissive: 0x3355aa,
-              emissiveIntensity: 0.4,
-              map: this.textures.metal,
-              metalness: 0.4,
-              roughness: 0.35,
-            }),
-          );
-          lamp.position.set(-3 + i * 2.2, 2.0, 0);
-          lamp.userData.unitId = u.id;
-          group.add(lamp);
-        }
+        this.addUvChannel(group, u.count, u.id);
       } else if (u.kind === 'chlorine') {
-        const n = Math.max(1, u.count);
-        const channel = new THREE.Mesh(new THREE.BoxGeometry(10 + n * 1.2, 2.4, 8), this.mats.concreteAlt);
-        channel.position.y = 1.2;
-        channel.castShadow = true;
-        channel.userData.unitId = u.id;
-        group.add(channel);
-        for (let i = 0; i < n; i++) {
-          const baffle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.6, 6.5), this.mats.concrete);
-          baffle.position.set(-3.5 + i * 2.4, 1.5, 0);
-          baffle.userData.unitId = u.id;
-          group.add(baffle);
-        }
-        const water = new THREE.Mesh(new THREE.BoxGeometry(9 + n * 1.1, 0.12, 7), this.mats.water);
-        water.position.set(0, 2.15, 0);
-        group.add(water);
+        this.addChlorineContact(group, u.count, u.id);
       } else {
         const building = new THREE.Mesh(
           new THREE.BoxGeometry(u.id === 'solids' ? 16 : 12, u.id === 'solids' ? 6 : 5, 10),
-          this.mats.concrete,
+          this.mats.weathered,
         );
         building.position.y = u.id === 'solids' ? 3 : 2.5;
         building.castShadow = true;
@@ -438,12 +1264,6 @@ export class PlantScene {
         );
         roof.position.y = u.id === 'solids' ? 6.2 : 5.2;
         group.add(roof);
-        if (u.id === 'pump') {
-          const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.2, 16), this.mats.metal);
-          motor.position.set(0, 5.8, 0);
-          motor.userData.unitId = u.id;
-          group.add(motor);
-        }
       }
 
       if (
@@ -462,7 +1282,9 @@ export class PlantScene {
       }
 
       const label = this.makeLabel(u.label);
-      label.position.set(0, u.kind === 'ditch' ? 9.5 : 8.2, 0);
+      const labelY =
+        u.kind === 'ditch' ? 9.5 : u.kind === 'leach' ? 4.5 : u.kind === 'septic_tank' || u.kind === 'dbox' ? 3.8 : 8.2;
+      label.position.set(0, labelY, 0);
       group.add(label);
 
       this.processRoot.add(group);
@@ -470,14 +1292,26 @@ export class PlantScene {
     }
 
     if (!this.plant.isSeptic) {
-      const outfall = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 18 * s), this.mats.waterDeep);
-      outfall.position.set(58 * s, 0.4, 8 * s);
-      this.processRoot.add(outfall);
+      this.addOutfall(58 * s, 8 * s, 0);
+      this.addPiping([
+        { x0: -38 * s, z0: -8 * s, x1: -18 * s, z1: -12 * s },
+        { x0: -18 * s, z0: -12 * s, x1: 8 * s, z1: -10 * s },
+        { x0: 8 * s, z0: -10 * s, x1: 32 * s, z1: -12 * s },
+        { x0: 32 * s, z0: -12 * s, x1: 48 * s, z1: 4 * s },
+        { x0: 48 * s, z0: 4 * s, x1: 58 * s, z1: 8 * s },
+      ]);
     }
 
     this.orbitDist = 42 + 28 * s;
-    this.orbitTarget.set(8 * s, 0, -4 * s);
-    this.walkPos.set(28 * s, 2.2, 38 * s);
+    if (this.plant.isSeptic) {
+      this.orbitTarget.set(12 * s, 0, 12 * s);
+      this.walkPos.set(-8 * s, this.sampleEyeY(-8 * s, 22 * s), 22 * s);
+      this.orbitDist = 50 + 20 * s;
+      this.pitch = -0.72;
+    } else {
+      this.orbitTarget.set(8 * s, 0, -4 * s);
+      this.walkPos.set(28 * s, this.sampleEyeY(28 * s, 38 * s), 38 * s);
+    }
   }
 
   private makeLabel(text: string): THREE.Sprite {
@@ -507,9 +1341,146 @@ export class PlantScene {
       sizeAttenuation: true,
     });
     const spr = new THREE.Sprite(mat);
-    spr.scale.set(22, 5.5, 1);
+    // Compact farmstead: 22 m labels swamp a ~30 m site.
+    const k = this.plant.isSeptic ? 0.62 : 1;
+    spr.scale.set(22 * k, 5.5 * k, 1);
+    spr.userData.baseScale = 5.5 * k;
     spr.renderOrder = 10;
+    this.labelSprites.push(spr);
     return spr;
+  }
+
+  /** Process-train units (no OSM context, no outfall) as world-space boxes. */
+  private processBoxes(): THREE.Box3[] {
+    return this.units
+      .filter((u) => !u.id.startsWith('osm_') && u.id !== 'outfall')
+      .map((u) => {
+        const b = new THREE.Box3();
+        u.mesh.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o.name !== 'apron') b.expandByObject(o);
+        });
+        return b;
+      })
+      .filter((b) => !b.isEmpty());
+  }
+
+  /**
+   * Walk entry: first time, stand between the orbit camera and the process train (clear of
+   * every tank) — always turn to face the units instead of blank ground.
+   */
+  private enterWalk(): void {
+    const boxes = this.processBoxes();
+    if (!boxes.length) {
+      this.pitch = -0.05;
+      return;
+    }
+    const all = boxes.reduce((acc, b) => acc.union(b.clone()), new THREE.Box3());
+    const cluster = all.getCenter(new THREE.Vector3());
+    const cam = this.camera.position;
+    // Nearest unit to the current view → stand just in front of it, looking into the train.
+    const near = boxes
+      .map((b) => ({ b, c: b.getCenter(new THREE.Vector3()) }))
+      .sort((a, b) => Math.hypot(a.c.x - cam.x, a.c.z - cam.z) - Math.hypot(b.c.x - cam.x, b.c.z - cam.z))[0];
+    const target = near.c.clone().lerp(cluster, 0.35);
+    if (!this.walkInitDone) {
+      const nsize = near.b.getSize(new THREE.Vector3());
+      const dir = new THREE.Vector3(cam.x - near.c.x, 0, cam.z - near.c.z);
+      if (dir.lengthSq() < 1) dir.set(0, 0, 1);
+      dir.normalize();
+      const r0 = Math.max(nsize.x, nsize.z) * 0.5 + 22;
+      const p = new THREE.Vector3();
+      const ro = this.processRoot;
+      ro.updateMatrixWorld(true);
+      const segs = this.pipeSegs.map((g) => {
+        const a = ro.localToWorld(new THREE.Vector3(g.x0, 0, g.z0));
+        const b = ro.localToWorld(new THREE.Vector3(g.x1, 0, g.z1));
+        return { a, b };
+      });
+      const segDist = (x: number, z: number, a: THREE.Vector3, b: THREE.Vector3): number => {
+        const vx = b.x - a.x;
+        const vz = b.z - a.z;
+        const t = THREE.MathUtils.clamp(((x - a.x) * vx + (z - a.z) * vz) / Math.max(vx * vx + vz * vz, 1e-6), 0, 1);
+        return Math.hypot(x - (a.x + vx * t), z - (a.z + vz * t));
+      };
+      // Candidates around the nearest unit: must be clear of every tank (4 m); prefer the
+      // camera side, close in, and well away from pipe runs (a 1.1 m pipe at eye level a few
+      // metres off fills the foreground).
+      const inBox = (x: number, z: number): boolean =>
+        boxes.some((b) => x > b.min.x - 4 && x < b.max.x + 4 && z > b.min.z - 4 && z < b.max.z + 4);
+      const pipeDist = (x: number, z: number): number =>
+        segs.reduce((m, g) => Math.min(m, segDist(x, z, g.a, g.b)), Infinity);
+      const base = Math.atan2(dir.z, dir.x);
+      let best = -Infinity;
+      p.set(near.c.x + dir.x * r0, 0, near.c.z + dir.z * r0);
+      for (let ring = 0; ring < 8; ring++) {
+        const r = r0 + ring * 8;
+        for (let k = -8; k <= 8; k++) {
+          const da = (k / 8) * Math.PI;
+          const x = near.c.x + Math.cos(base + da) * r;
+          const z = near.c.z + Math.sin(base + da) * r;
+          if (inBox(x, z)) continue;
+          const score = Math.min(pipeDist(x, z), 30) * 1.0 - ring * 2.5 - Math.abs(da) * 6;
+          if (score > best) {
+            best = score;
+            p.set(x, 0, z);
+          }
+        }
+      }
+      this.walkPos.set(p.x, this.sampleEyeY(p.x, p.z), p.z);
+      this.walkInitDone = true;
+    }
+    this.faceProcess(target);
+  }
+
+  private faceProcess(target: THREE.Vector3): void {
+    const dx = target.x - this.walkPos.x;
+    const dz = target.z - this.walkPos.z;
+    // forward = (−sin yaw, 0, −cos yaw)
+    this.yaw = Math.atan2(-dx, -dz);
+    this.pitch = -0.06;
+  }
+
+  /**
+   * Screen-space label declutter: nearer labels keep their anchor, overlapping ones are
+   * stacked upward (via Sprite.center, i.e. whole label heights) so text never overlaps.
+   */
+  private declutterLabels(): void {
+    const sprites = this.labelSprites.filter((sp) => sp.visible && sp.parent);
+    if (!sprites.length) return;
+    const canvas = this.renderer.domElement;
+    const H = canvas.clientHeight || window.innerHeight;
+    const W = canvas.clientWidth || window.innerWidth;
+    const f = H / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+    const v = new THREE.Vector3();
+    const items = sprites
+      .map((sp) => {
+        sp.getWorldPosition(v);
+        const dist = v.distanceTo(this.camera.position);
+        v.project(this.camera);
+        // Cap on-screen label height (close-up walk views otherwise get a wall of text).
+        const base = (sp.userData.baseScale as number | undefined) ?? sp.scale.y;
+        const raw = (base * f) / Math.max(dist, 1e-3);
+        const maxPx = 34;
+        const sy = raw > maxPx ? base * (maxPx / raw) : base;
+        sp.scale.set(sy * 4, sy, 1);
+        const h = Math.min(raw, maxPx);
+        return { sp, x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H, w: h * 4, h, dist, front: v.z < 1 };
+      })
+      .filter((it) => it.front)
+      .sort((a, b) => a.dist - b.dist);
+    const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    for (const it of items) {
+      let k = 0;
+      for (; k < 8; k++) {
+        const cy = it.y - k * it.h * 1.08;
+        const r = { x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 };
+        if (!placed.some((p) => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) {
+          placed.push(r);
+          break;
+        }
+      }
+      it.sp.center.set(0.5, 0.5 - Math.min(k, 7) * 1.08);
+    }
   }
 
   private bindInput(canvas: HTMLCanvasElement): void {
@@ -517,7 +1488,15 @@ export class PlantScene {
       this.keys.add(e.code);
       if (e.code === 'KeyC') {
         this.mode = this.mode === 'orbit' ? 'walk' : 'orbit';
+        if (this.mode === 'walk') {
+          this.camCycle = 2;
+          this.enterWalk();
+        } else if (this.camCycle === 2) this.camCycle = 0;
         this.onModeChange?.(this.mode);
+        this.onCamCycleChange?.(this.getCamCycleLabel());
+      }
+      if (e.code === 'KeyV') {
+        this.cycleCameraView();
       }
     };
     this.onKeyUp = (e: KeyboardEvent) => {
@@ -562,10 +1541,10 @@ export class PlantScene {
       }
       this.yaw -= dx * 0.005;
       this.pitch -= dy * 0.004;
-      this.pitch = Math.max(-1.2, Math.min(0.2, this.pitch));
+      const pitchMin = this.camCycle === 1 ? -1.55 : -1.25;
+      this.pitch = Math.max(pitchMin, Math.min(0.25, this.pitch));
     });
     canvas.addEventListener('pointerleave', (e) => {
-      // Keep tip alive when pointer moves onto the hover card (Open controls)
       const rt = e.relatedTarget as Node | null;
       const tip = document.querySelector('.hover-tip');
       if (tip && rt && tip.contains(rt)) return;
@@ -575,7 +1554,7 @@ export class PlantScene {
       'wheel',
       (e) => {
         e.preventDefault();
-        this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 220);
+        this.orbitDist = clamp(this.orbitDist + e.deltaY * 0.05, 18, 600);
       },
       { passive: false },
     );
@@ -607,7 +1586,6 @@ export class PlantScene {
       return undefined;
     };
 
-    // Process-train units always win over OSM surroundings (giant WWTP slabs etc.)
     for (const hit of hits) {
       const id = resolveId(hit.object);
       if (id && !id.startsWith('osm_')) {
@@ -623,9 +1601,37 @@ export class PlantScene {
 
   private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {
     if (!this.onHover) return;
-    const unit = this.pickUnit(clientX, clientY, canvas);
-    // HoverTip only rebuilds DOM when unit id changes
+    let unit = this.pickUnit(clientX, clientY, canvas);
+    // Soft pick: if exact ray misses, tip still shows for nearby process units (more prevalent)
+    if (!unit) unit = this.nearestUnitScreen(clientX, clientY, canvas, 56);
     this.onHover(unit, clientX, clientY);
+  }
+
+  private nearestUnitScreen(
+    clientX: number,
+    clientY: number,
+    canvas: HTMLCanvasElement,
+    maxPx: number,
+  ): UnitInfo | null {
+    const rect = canvas.getBoundingClientRect();
+    let best: UnitInfo | null = null;
+    let bestD = maxPx;
+    const v = new THREE.Vector3();
+    for (const u of this.units) {
+      if (u.id.startsWith('osm_') && u.id !== 'osm_wwtp') continue;
+      const box = new THREE.Box3().setFromObject(u.mesh);
+      box.getCenter(v);
+      v.project(this.camera);
+      if (v.z > 1) continue;
+      const x = (v.x * 0.5 + 0.5) * rect.width + rect.left;
+      const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
+      const d = Math.hypot(x - clientX, y - clientY);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    return best;
   }
 
   private setSelected(unit: UnitInfo | null): void {
@@ -644,6 +1650,11 @@ export class PlantScene {
     this.onSelect(unit);
   }
 
+  /** Walk / orbit eye height from shared groundY datum. */
+  private sampleEyeY(x: number, z: number): number {
+    return groundY(x, z, this.dem, this.plant.id, this.terrainOpts) + this.eyeHeight;
+  }
+
   private update(dt: number): void {
     const speed = (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 28 : 14) * dt;
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
@@ -654,7 +1665,7 @@ export class PlantScene {
       if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) this.walkPos.addScaledVector(forward, -speed);
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) this.walkPos.addScaledVector(right, -speed);
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) this.walkPos.addScaledVector(right, speed);
-      this.walkPos.y = 2.2;
+      this.walkPos.y = this.sampleEyeY(this.walkPos.x, this.walkPos.z);
       this.camera.position.copy(this.walkPos);
       const look = this.walkPos.clone().add(
         new THREE.Vector3(
@@ -670,14 +1681,25 @@ export class PlantScene {
       if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) this.orbitTarget.addScaledVector(right, -speed);
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) this.orbitTarget.addScaledVector(right, speed);
 
-      const cp = Math.cos(this.pitch);
-      const sp = Math.sin(this.pitch);
-      this.camera.position.set(
-        this.orbitTarget.x - Math.sin(this.yaw) * cp * this.orbitDist,
-        this.orbitTarget.y + Math.max(8, -sp * this.orbitDist + 18),
-        this.orbitTarget.z - Math.cos(this.yaw) * cp * this.orbitDist,
-      );
-      this.camera.lookAt(this.orbitTarget);
+      if (this.camCycle === 1) {
+        this.camera.position.set(
+          this.orbitTarget.x,
+          this.orbitTarget.y + this.orbitDist,
+          this.orbitTarget.z,
+        );
+        this.camera.up.set(0, 0, -1);
+        this.camera.lookAt(this.orbitTarget);
+        this.camera.up.set(0, 1, 0);
+      } else {
+        const cp = Math.cos(this.pitch);
+        const sp = Math.sin(this.pitch);
+        this.camera.position.set(
+          this.orbitTarget.x - Math.sin(this.yaw) * cp * this.orbitDist,
+          this.orbitTarget.y + Math.max(8, -sp * this.orbitDist + 18),
+          this.orbitTarget.z - Math.cos(this.yaw) * cp * this.orbitDist,
+        );
+        this.camera.lookAt(this.orbitTarget);
+      }
     }
 
     for (const u of this.units) {
@@ -692,4 +1714,46 @@ export class PlantScene {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/** Build a THREE.Shape in snap-local XZ from a world-metre footprint ring. */
+function ringToLocalShape(
+  ring: number[][],
+  cx: number,
+  cz: number,
+  snapYaw: number,
+  scale = 1,
+): THREE.Shape | null {
+  if (!ring || ring.length < 3) return null;
+  const n = ring.length - (ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0);
+  if (n < 3) return null;
+  const shape = new THREE.Shape();
+  for (let i = 0; i < n; i++) {
+    const { x: lx, z: lz } = worldToGroupLocal((ring[i][0] - cx) * scale, (ring[i][1] - cz) * scale, snapYaw);
+    if (i === 0) shape.moveTo(lx, -lz);
+    else shape.lineTo(lx, -lz);
+  }
+  shape.closePath();
+  return shape;
+}
+
+/**
+ * Inverse of a Three.js `rotation.y = yaw` group transform for an XZ offset.
+ * Three's R_y(θ) maps (x, z) → (x·cosθ + z·sinθ, −x·sinθ + z·cosθ), so the inverse is
+ * (x·cosθ − z·sinθ, x·sinθ + z·cosθ). v0.3.10 used cos(−θ)/sin(−θ) here, which applied
+ * R_y(θ) a second time (net 2θ) and swung every footprint off its OSM polygon.
+ */
+export function worldToGroupLocal(dx: number, dz: number, yaw: number): { x: number; z: number } {
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  return { x: dx * c - dz * s, z: dx * s + dz * c };
+}
+
+/**
+ * Local rotation.y that aligns a child's +X with a footprint major axis given as a math angle
+ * (atan2 in the X→Z plane, as gisLayout's majorAxisYaw), inside a group rotated by groupYaw.
+ * Three's rotation.y turns +X toward −Z, so world rotation = −majorYaw.
+ */
+export function majorAxisToLocalRotY(majorYaw: number, groupYaw: number): number {
+  return -majorYaw - groupYaw;
 }

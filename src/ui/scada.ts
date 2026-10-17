@@ -14,6 +14,10 @@ export class ScadaOverlay {
   private onSimSpeedChange: (s: SimSpeed) => void;
   private autopilot: Autopilot | null;
   private onAutopilotChange: ((on: boolean) => void) | null;
+  private onOverlayToggle: ((on: boolean) => void) | null;
+  private onAckAlarms: (() => void) | null;
+  private lastAlarmIds: string[] = [];
+  private lastAlarmKey = '\u0000';
 
   constructor(
     host: HTMLElement,
@@ -23,6 +27,8 @@ export class ScadaOverlay {
       onSimSpeedChange?: (s: SimSpeed) => void;
       autopilot?: Autopilot;
       onAutopilotChange?: (on: boolean) => void;
+      onOverlayToggle?: (on: boolean) => void;
+      onAckAlarms?: () => void;
     },
   ) {
     this.model = model;
@@ -31,6 +37,8 @@ export class ScadaOverlay {
     this.onSimSpeedChange = opts?.onSimSpeedChange ?? (() => {});
     this.autopilot = opts?.autopilot ?? null;
     this.onAutopilotChange = opts?.onAutopilotChange ?? null;
+    this.onOverlayToggle = opts?.onOverlayToggle ?? null;
+    this.onAckAlarms = opts?.onAckAlarms ?? null;
     this.el = document.createElement('div');
     this.el.id = 'scada';
     this.el.className = 'scada-window';
@@ -51,6 +59,23 @@ export class ScadaOverlay {
 
   getSimSpeed(): SimSpeed {
     return this.simSpeed;
+  }
+
+  /** Cycle 1× → 4× → 12× (keyboard [ ] / bindings). */
+  cycleSimSpeed(dir: 1 | -1 = 1): SimSpeed {
+    const order: SimSpeed[] = [1, 4, 12];
+    const i = order.indexOf(this.simSpeed);
+    const next = order[(i + dir + order.length) % order.length];
+    this.setSimSpeed(next);
+    return next;
+  }
+
+  setSimSpeed(s: SimSpeed): void {
+    this.simSpeed = s;
+    this.el.querySelectorAll('.speed-btn').forEach((b) => {
+      b.classList.toggle('active', Number((b as HTMLElement).dataset.speed) === s);
+    });
+    this.onSimSpeedChange(s);
   }
 
   /** Scroll / highlight related setpoint controls (from hover "Open controls"). */
@@ -105,7 +130,7 @@ export class ScadaOverlay {
     const badge = this.el.querySelector('#autopilotBadge') as HTMLElement | null;
     if (badge) {
       badge.classList.toggle('on', !!this.autopilot?.enabled);
-      badge.textContent = this.autopilot?.enabled ? 'AUTOPILOT' : 'MANUAL';
+      badge.textContent = this.autopilot?.enabled ? 'AP ON · NORMAL/ECA' : 'MANUAL';
     }
 
     if (this.septic) {
@@ -143,21 +168,32 @@ export class ScadaOverlay {
       }
     }
 
+    this.lastAlarmIds = state.alarms.map((a) => a.id);
+
     const alarmBox = this.el.querySelector('#alarmList') as HTMLElement;
     if (alarmBox) {
-      const MAX_VISIBLE = 3;
-      if (!state.alarms.length) {
-        alarmBox.innerHTML = `<div class="alarm-ok">No active alarms</div>`;
-      } else {
-        const shown = state.alarms.slice(0, MAX_VISIBLE);
-        const more = state.alarms.length - shown.length;
-        alarmBox.innerHTML =
-          shown
+      // v0.3.11: every active alarm is rendered and the list scrolls (3 rows visible).
+      // Only rebuild when the alarm set changes so the operator's scroll position survives ticks.
+      const key = state.alarms.map((a) => `${a.id}|${a.severity}|${a.message}`).join('\n');
+      if (key !== this.lastAlarmKey) {
+        this.lastAlarmKey = key;
+        const keepTop = alarmBox.scrollTop;
+        if (!state.alarms.length) {
+          alarmBox.innerHTML = `<div class="alarm-ok">No active alarms</div>`;
+        } else {
+          alarmBox.innerHTML = state.alarms
             .map(
               (a) =>
                 `<div class="alarm-row ${a.severity}" title="${a.message.replace(/"/g, '&quot;')}">${a.message}</div>`,
             )
-            .join('') + (more > 0 ? `<div class="alarm-more">+${more} more</div>` : '');
+            .join('');
+        }
+        alarmBox.scrollTop = keepTop;
+      }
+      const countEl = this.el.querySelector('#alarmCount');
+      if (countEl) {
+        const n = state.alarms.length;
+        countEl.textContent = n > 3 ? `${n} active · scroll ↕` : n ? `${n} active` : '';
       }
     }
 
@@ -206,7 +242,7 @@ export class ScadaOverlay {
           <div class="tag"><span class="k">Tank level</span><span class="v"><span id="tagTank">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">High-level float</span><span class="v"><span id="tagFloat">OK</span></span></div>
           <div class="tag"><span class="k">Bed status</span><span class="v"><span id="tagBed">—</span></span></div>
-          <div class="tag"><span class="k">Pump power</span><span class="v"><span id="tagKw">0</span> <small>kW</small></span></div>
+          <div class="tag"><span class="k">Outlet power</span><span class="v"><span id="tagKw">0</span> <small>kW</small></span></div>
           <div class="tag"><span class="k">Design util</span><span class="v"><span id="tagUtil">0</span> <small>%</small></span></div>
           <div class="tag"><span class="k">Selected unit</span><span class="v" id="scadaUnit">—</span></div>`
       : `
@@ -232,10 +268,10 @@ export class ScadaOverlay {
     const controls = this.septic
       ? `
           <div class="ctrl-head">Operator setpoints</div>
-          <label>Effluent pump <span data-readout="pumpPct">${sp.pumpSpeedPct}%</span>
+          <label>Bed outlet / gravity feed <span data-readout="pumpPct">${sp.pumpSpeedPct}%</span>
             <input type="range" id="spPump" min="0" max="120" step="1" value="${sp.pumpSpeedPct}" />
           </label>
-          <p class="scada-hint">Tank + leaching bed · gravity / pump to bed. Lower pump → level rises → float alarm.</p>`
+          <p class="scada-hint">Class 4 is usually gravity (no pump house). This setpoint is outlet openness to the yard leaching bed — close it and tank level / float climb.</p>`
       : `
           <div class="ctrl-head">Operator setpoints</div>
           <label>DO target <span data-readout="doTarget">${sp.doTarget.toFixed(1)}</span> mg/L
@@ -272,16 +308,20 @@ export class ScadaOverlay {
         <div class="scada-col tags"><div class="tag-grid">${tags}</div></div>
         <div class="scada-col controls">
           <label class="check autopilot-toggle">
-            <input type="checkbox" id="spAutopilot" ${apOn} /> Autopilot
+            <input type="checkbox" id="spAutopilot" ${apOn} /> SCADA Autopilot
           </label>
-          <p class="scada-hint">ON: tracks DO, wet-well, chem/ECA, disinfection, septic float. OFF: full manual.</p>
+          <p class="scada-hint ap-hint"><strong>ON</strong> = auto keep plant <em>NORMAL</em> / meet ECA (DO, wet-well, chem, disinfection, septic float). <strong>OFF</strong> = you own every setpoint.</p>
           ${controls}
-          <div class="ctrl-head" style="margin-top:.65rem">Sim speed</div>
+          <div class="ctrl-head" style="margin-top:.65rem">Sim speed <small class="muted-keys">[ ]</small></div>
           <div class="speed-row" id="simSpeedRow">${speedBtns}</div>
+          <label class="check" style="margin-top:.55rem">
+            <input type="checkbox" id="spOverlay" /> Layout overlay <small class="muted-keys">O</small>
+          </label>
+          <p class="scada-hint">Transparent labeled site map with live tags (hover chips for detail).</p>
         </div>
       </div>
       <div class="scada-alarms">
-        <div class="ctrl-head">Alarms</div>
+        <div class="ctrl-head alarms-head">Alarms <span class="alarm-count" id="alarmCount"></span> <button type="button" class="ack-btn" id="ackAlarms" title="Acknowledge (A)">ACK</button></div>
         <div id="alarmList" class="alarm-list"></div>
       </div>
       <div class="status-strip" id="statusStrip">Shift 0:00 · NORMAL</div>
@@ -318,7 +358,7 @@ export class ScadaOverlay {
       const badge = this.el.querySelector('#autopilotBadge') as HTMLElement | null;
       if (badge) {
         badge.classList.toggle('on', ap.checked);
-        badge.textContent = ap.checked ? 'AUTOPILOT' : 'MANUAL';
+        badge.textContent = ap.checked ? 'AP ON · NORMAL/ECA' : 'MANUAL';
       }
     });
 
@@ -326,14 +366,49 @@ export class ScadaOverlay {
       btn.addEventListener('click', () => {
         const s = Number((btn as HTMLElement).dataset.speed) as SimSpeed;
         if (s !== 1 && s !== 4 && s !== 12) return;
-        this.simSpeed = s;
-        this.el.querySelectorAll('.speed-btn').forEach((b) => {
-          b.classList.toggle('active', Number((b as HTMLElement).dataset.speed) === s);
-        });
-        this.onSimSpeedChange(s);
+        this.setSimSpeed(s);
         audio.uiClick();
       });
     });
+
+    const ov = this.el.querySelector('#spOverlay') as HTMLInputElement | null;
+    ov?.addEventListener('change', () => {
+      this.onOverlayToggle?.(ov.checked);
+      audio.uiClick();
+    });
+
+    this.el.querySelector('#ackAlarms')?.addEventListener('click', () => {
+      this.model.acknowledgeAlarms(this.lastAlarmIds);
+      this.onAckAlarms?.();
+      audio.uiClick();
+    });
+  }
+
+  /** Keep overlay checkbox in sync when toggled from keyboard. */
+  setOverlayChecked(on: boolean): void {
+    const ov = this.el.querySelector('#spOverlay') as HTMLInputElement | null;
+    if (ov) ov.checked = on;
+  }
+
+  /** Toggle SCADA Autopilot (Z key). Returns new enabled state. */
+  toggleAutopilot(): boolean {
+    if (!this.autopilot) return false;
+    const next = !this.autopilot.enabled;
+    this.setAutopilotChecked(next);
+    return next;
+  }
+
+  /** Keep Autopilot checkbox + badge in sync with keyboard / external toggles. */
+  setAutopilotChecked(on: boolean): void {
+    if (this.autopilot) this.autopilot.enabled = on;
+    const ap = this.el.querySelector('#spAutopilot') as HTMLInputElement | null;
+    if (ap) ap.checked = on;
+    const badge = this.el.querySelector('#autopilotBadge') as HTMLElement | null;
+    if (badge) {
+      badge.classList.toggle('on', on);
+      badge.textContent = on ? 'AP ON · NORMAL/ECA' : 'MANUAL';
+    }
+    this.onAutopilotChange?.(on);
   }
 }
 

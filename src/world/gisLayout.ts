@@ -72,9 +72,21 @@ function polygonArea(ring: number[][]): number {
   return Math.abs(a) * 0.5;
 }
 
+/** Area-weighted polygon centroid (vertex mean is biased by uneven OSM node spacing). */
 function centroid(ring: number[][]): { x: number; z: number } {
+  let a = 0;
   let x = 0;
   let z = 0;
+  for (let i = 0; i < ring.length - 1; i++) {
+    const c = ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+    a += c;
+    x += (ring[i][0] + ring[i + 1][0]) * c;
+    z += (ring[i][1] + ring[i + 1][1]) * c;
+  }
+  if (Math.abs(a) > 1e-6) return { x: x / (3 * a), z: z / (3 * a) };
+  // Degenerate ring: vertex mean
+  x = 0;
+  z = 0;
   const n = Math.max(1, ring.length - 1);
   for (let i = 0; i < n; i++) {
     x += ring[i][0];
@@ -191,6 +203,13 @@ function wwtpBounds(pack: PlantGeoPack): { minX: number; maxX: number; minZ: num
   return null;
 }
 
+function wwtpRing(pack: PlantGeoPack): number[][] | null {
+  for (const f of pack.geojson.features) {
+    if (f.properties.kind === 'wwtp' && f.geometry.type === 'Polygon') return f.geometry.coordinates[0] as number[][];
+  }
+  return null;
+}
+
 function inside(b: { minX: number; maxX: number; minZ: number; maxZ: number }, x: number, z: number, pad = 40): boolean {
   return x >= b.minX - pad && x <= b.maxX + pad && z >= b.minZ - pad && z <= b.maxZ + pad;
 }
@@ -248,11 +267,6 @@ function aabbOverlap(
   return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
 }
 
-function footprintCollides(candidate: FootprintRing, blockers: FootprintRing[], margin = 8): boolean {
-  const ca = aabbOfRing(candidate, margin);
-  return blockers.some((b) => aabbOverlap(ca, aabbOfRing(b, 0)));
-}
-
 function makeRectBasin(cx: number, cz: number, hw: number, hd: number, yaw: number): FootprintRing {
   const cos = Math.cos(yaw);
   const sin = Math.sin(yaw);
@@ -279,60 +293,264 @@ function makeRectBasin(cx: number, cz: number, hw: number, hd: number, yaw: numb
   };
 }
 
+/** OSM carriageway width (m) by highway class — shared with osmBake road meshes. */
+export function roadWidth(highway: string | null | undefined): number {
+  if (!highway) return 4;
+  if (/motorway|trunk/.test(highway)) return 10;
+  if (/primary|secondary/.test(highway)) return 7;
+  if (/tertiary|residential|unclassified/.test(highway)) return 5;
+  if (/service|track|path|footway|cycleway/.test(highway)) return 2.8;
+  return 4.5;
+}
+
+function pointInRing(x: number, z: number, ring: number[][]): boolean {
+  let c = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, zi] = ring[i];
+    const [xj, zj] = ring[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) c = !c;
+  }
+  return c;
+}
+
+function segsCross(a: number[], b: number[], c: number[], d: number[]): boolean {
+  const o = (p: number[], q: number[], r: number[]) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const d1 = o(c, d, a);
+  const d2 = o(c, d, b);
+  const d3 = o(a, b, c);
+  const d4 = o(a, b, d);
+  return d1 * d2 < 0 && d3 * d4 < 0;
+}
+
+/** Do two simple polygons (closed rings) overlap — vertex containment or edge crossing. */
+function ringsOverlap(a: number[][], b: number[][]): boolean {
+  for (const p of a) if (pointInRing(p[0], p[1], b)) return true;
+  for (const p of b) if (pointInRing(p[0], p[1], a)) return true;
+  for (let i = 0; i < a.length - 1; i++)
+    for (let j = 0; j < b.length - 1; j++) if (segsCross(a[i], a[i + 1], b[j], b[j + 1])) return true;
+  return false;
+}
+
+function rectRing(cx: number, cz: number, hw: number, hd: number, yaw: number): number[][] {
+  return makeRectBasin(cx, cz, hw, hd, yaw).ring;
+}
+
+type Box = { minX: number; maxX: number; minZ: number; maxZ: number };
+
 /**
- * Hand rectangular primary clarifiers for Kitchener (OSM only has circular tanks).
- * Place west of the western aeration edge with AABB collision checks (no overlap).
+ * Real-world obstacles for estimated (non-OSM) unit placement: mapped buildings, roads/paths
+ * (by carriageway width), mapped process footprints / already-placed units, and the WWTP
+ * fence (the man_made=wastewater_plant polygon). Fences, rail and gates are not in the bake,
+ * so the plant polygon edge stands in for the fence line.
+ */
+class SiteObstacles {
+  readonly polys: { ring: number[][]; box: Box }[] = [];
+  readonly roads: { a: number[]; b: number[]; hw: number; box: Box }[] = [];
+  constructor(
+    pack: PlantGeoPack,
+    readonly fence: number[][] | null,
+    near: Box,
+  ) {
+    const touches = (b: Box) => b.maxX > near.minX && b.minX < near.maxX && b.maxZ > near.minZ && b.minZ < near.maxZ;
+    for (const f of pack.geojson.features as GeoFeature[]) {
+      const k = f.properties.kind;
+      if (k === 'building' && f.geometry.type === 'Polygon') {
+        const ring = f.geometry.coordinates[0] as number[][];
+        const box = bbox(ring);
+        if (touches(box)) this.polys.push({ ring, box });
+      } else if (k === 'road' && f.geometry.type === 'LineString') {
+        const c = f.geometry.coordinates as number[][];
+        const hw = roadWidth(f.properties.highway) / 2;
+        for (let i = 0; i < c.length - 1; i++) {
+          const box = {
+            minX: Math.min(c[i][0], c[i + 1][0]),
+            maxX: Math.max(c[i][0], c[i + 1][0]),
+            minZ: Math.min(c[i][1], c[i + 1][1]),
+            maxZ: Math.max(c[i][1], c[i + 1][1]),
+          };
+          if (touches(box)) this.roads.push({ a: c[i], b: c[i + 1], hw, box });
+        }
+      }
+    }
+  }
+  /** 40 m spatial hash over polys/roads so rectClear only tests local obstacles. */
+  private static readonly CELL = 40;
+  private grid: Map<string, { polys: number[]; roads: number[] }> | null = null;
+  private keyRange(b: Box): string[] {
+    const C = SiteObstacles.CELL;
+    const out: string[] = [];
+    for (let i = Math.floor(b.minX / C); i <= Math.floor(b.maxX / C); i++)
+      for (let j = Math.floor(b.minZ / C); j <= Math.floor(b.maxZ / C); j++) out.push(`${i},${j}`);
+    return out;
+  }
+  private index(): Map<string, { polys: number[]; roads: number[] }> {
+    if (this.grid) return this.grid;
+    const g = new Map<string, { polys: number[]; roads: number[] }>();
+    const cell = (k: string) => {
+      let c = g.get(k);
+      if (!c) g.set(k, (c = { polys: [], roads: [] }));
+      return c;
+    };
+    this.polys.forEach((p, i) => this.keyRange(p.box).forEach((k) => cell(k).polys.push(i)));
+    this.roads.forEach((r, i) => {
+      const m = r.hw + 8;
+      this.keyRange({ minX: r.box.minX - m, maxX: r.box.maxX + m, minZ: r.box.minZ - m, maxZ: r.box.maxZ + m }).forEach((k) => cell(k).roads.push(i));
+    });
+    return (this.grid = g);
+  }
+  addRing(ring: number[][]): void {
+    this.polys.push({ ring, box: bbox(ring) });
+    this.grid = null;
+  }
+  addRect(cx: number, cz: number, hw: number, hd: number, yaw = 0): void {
+    this.addRing(rectRing(cx, cz, hw, hd, yaw));
+  }
+  /** Rectangle (centre, half sizes, yaw) is on clear ground inside the fence. */
+  rectClear(cx: number, cz: number, hw: number, hd: number, yaw: number, margin = 6, fenceMargin = 10, roadMargin = 4): boolean {
+    const r = rectRing(cx, cz, hw + margin, hd + margin, yaw);
+    const rb = bbox(r);
+    const g = this.index();
+    const pi = new Set<number>();
+    const ri = new Set<number>();
+    for (const k of this.keyRange(rb)) {
+      const c = g.get(k);
+      if (!c) continue;
+      c.polys.forEach((i) => pi.add(i));
+      c.roads.forEach((i) => ri.add(i));
+    }
+    for (const i of pi) {
+      const p = this.polys[i];
+      if (p.box.maxX < rb.minX || p.box.minX > rb.maxX || p.box.maxZ < rb.minZ || p.box.minZ > rb.maxZ) continue;
+      if (ringsOverlap(r, p.ring)) return false;
+    }
+    for (const i of ri) {
+      const rd = this.roads[i];
+      const m = rd.hw + roadMargin - margin;
+      const rr = m > 0 ? rectRing(cx, cz, hw + margin + m, hd + margin + m, yaw) : r;
+      const b = m > 0 ? bbox(rr) : rb;
+      if (rd.box.maxX < b.minX || rd.box.minX > b.maxX || rd.box.maxZ < b.minZ || rd.box.minZ > b.maxZ) continue;
+      if (pointInRing(rd.a[0], rd.a[1], rr) || pointInRing(rd.b[0], rd.b[1], rr)) return false;
+      for (let i = 0; i < rr.length - 1; i++) if (segsCross(rr[i], rr[i + 1], rd.a, rd.b)) return false;
+    }
+    if (this.fence) {
+      const fr = rectRing(cx, cz, hw + fenceMargin, hd + fenceMargin, yaw);
+      for (const p of fr) if (!pointInRing(p[0], p[1], this.fence)) return false;
+      for (let i = 0; i < fr.length - 1; i++)
+        for (let j = 0; j < this.fence.length - 1; j++) if (segsCross(fr[i], fr[i + 1], this.fence[j], this.fence[j + 1])) return false;
+    }
+    return true;
+  }
+}
+
+/** Ring-search clear ground for a w×d building near an anchor (nearest clear spot wins). */
+function placeClearBox(
+  obs: SiteObstacles,
+  anchor: { x: number; z: number },
+  hw: number,
+  hd: number,
+  rMin: number,
+  rMax: number,
+  prefer: number | null = null,
+): { x: number; z: number } | null {
+  const base = prefer ?? 0;
+  for (let r = rMin; r <= rMax; r += 4) {
+    const n = Math.max(12, Math.round((2 * Math.PI * r) / 6));
+    for (let k = 0; k < n; k++) {
+      const off = Math.ceil(k / 2) * ((2 * Math.PI) / n) * (k % 2 ? 1 : -1);
+      const a = base + off;
+      const x = anchor.x + Math.cos(a) * r;
+      const z = anchor.z + Math.sin(a) * r;
+      if (obs.rectClear(x, z, hw, hd, 0, 5, 8)) return { x, z };
+    }
+  }
+  return null;
+}
+
+/**
+ * Hand rectangular primary clarifiers for Kitchener (OSM only maps circular tanks).
+ * v0.3.12: search clear ground INSIDE the plant fence near the aeration train, collision-checked
+ * against mapped buildings, roads/paths, OSM process footprints and the fence line (v0.3.11
+ * pushed the bank west until it cleared aeration, which left it straddling the SW fence/road).
  */
 function kitchenerRectPrimaries(
   site: { cx: number; cz: number },
   aerationFs: FootprintRing[],
+  obs: SiteObstacles,
   count = 4,
 ): FootprintRing[] {
-  const yaw = aerationFs.length ? meanYaw(aerationFs) : 0;
-  const cos = Math.cos(yaw);
-  const sin = Math.sin(yaw);
-  // Anchor west of the westernmost aeration AABB (not the largest/east basin).
-  let westEdge = site.cx - 160;
-  let midZ = site.cz - 20;
-  if (aerationFs.length) {
-    westEdge = Math.min(...aerationFs.map((f) => aabbOfRing(f).minX));
-    midZ = aerationFs.reduce((s, f) => s + f.cz, 0) / aerationFs.length;
-  }
   const hw = 22.5;
   const hd = 9;
   const spacing = 22;
-  const out: FootprintRing[] = [];
-  // Try increasing westward offsets until the full bank clears aeration.
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const gap = 28 + attempt * 18;
-    const baseX = westEdge - gap - hw;
-    const baseZ = midZ;
-    const trial: FootprintRing[] = [];
-    let ok = true;
-    for (let i = 0; i < count; i++) {
+  // Keep well inside the fence: the plant polygon edge is tree-lined in the imagery (35 m is
+  // the most the SE yard allows; no other open ground on site fits a 4-tank bank).
+  const FENCE_M = 35;
+  const yaw0 = aerationFs.length ? meanYaw(aerationFs) : 0;
+  const aerBoxes = aerationFs.map((f) => aabbOfRing(f));
+  const aerC = aerationFs.length ? centroidOf(aerationFs) : { x: site.cx, z: site.cz };
+  const bankAt = (bx: number, bz: number, yaw: number): FootprintRing[] => {
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    return Array.from({ length: count }, (_, i) => {
       const along = (i - (count - 1) / 2) * spacing;
-      const cx = baseX + -sin * along;
-      const cz = baseZ + cos * along;
-      const fp = makeRectBasin(cx, cz, hw, hd, yaw);
-      if (footprintCollides(fp, aerationFs, 6)) {
-        ok = false;
-        break;
-      }
-      trial.push(fp);
+      return makeRectBasin(bx - sin * along, bz + cos * along, hw, hd, yaw);
+    });
+  };
+  const distToAer = (x: number, z: number): number =>
+    aerBoxes.length
+      ? Math.min(
+          ...aerBoxes.map((b) => Math.hypot(Math.max(b.minX - x, 0, x - b.maxX), Math.max(b.minZ - z, 0, z - b.maxZ))),
+        )
+      : Math.hypot(x - site.cx, z - site.cz);
+  const fence = obs.fence;
+  const fenceDist = (x: number, z: number): number => {
+    if (!fence) return 1e9;
+    let m = Infinity;
+    for (let i = 0; i < fence.length - 1; i++) {
+      const [ax, az] = fence[i];
+      const [bx, bz] = fence[i + 1];
+      const vx = bx - ax;
+      const vz = bz - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / Math.max(vx * vx + vz * vz, 1e-9)));
+      m = Math.min(m, Math.hypot(x - (ax + vx * t), z - (az + vz * t)));
     }
-    if (ok && trial.length === count) {
-      out.push(...trial);
+    return m;
+  };
+  // Aeration-aligned first, then every 15° (lets the bank run along a yard edge).
+  const yaws = [yaw0, yaw0 + Math.PI / 2, ...Array.from({ length: 12 }, (_, k) => (k * Math.PI) / 12)];
+  // Score every candidate cheaply, then collision-test best-first: the first clear one wins.
+  const cands: { bx: number; bz: number; yaw: number; score: number }[] = [];
+  for (let dx = -260; dx <= 260; dx += 6) {
+    for (let dz = -260; dz <= 260; dz += 6) {
+      const bx = aerC.x + dx;
+      const bz = aerC.z + dz;
+      const d = distToAer(bx, bz);
+      if (d > 160) continue;
+      if (fence && !pointInRing(bx, bz, fence)) continue;
+      // Upstream of aeration (flow runs headworks → primaries → aeration → secondaries, W→E)
+      // and away from the fence line (the yard edge is tree-lined in the imagery).
+      const base = d + Math.max(0, bx - aerC.x) * 0.6 + Math.max(0, 70 - fenceDist(bx, bz)) * 1.2;
+      yaws.forEach((yaw, k) => cands.push({ bx, bz, yaw, score: base + (k < 2 ? 0 : 0.5) }));
+    }
+  }
+  cands.sort((a, b) => a.score - b.score);
+  let best: { fs: FootprintRing[] } | null = null;
+  // Any bank orientation covers its central ±9 m square, so a blocked centre rules out all yaws.
+  const coreOk = new Map<string, boolean>();
+  for (const c of cands) {
+    const key = `${c.bx},${c.bz}`;
+    let ok = coreOk.get(key);
+    if (ok === undefined) coreOk.set(key, (ok = obs.rectClear(c.bx, c.bz, 9, 9, 0, 6, FENCE_M, 4)));
+    if (!ok) continue;
+    const fs = bankAt(c.bx, c.bz, c.yaw);
+    if (fs.every((f) => obs.rectClear(f.cx, f.cz, hw, hd, c.yaw, 6, FENCE_M, 4))) {
+      best = { fs };
       break;
     }
   }
-  if (!out.length) {
-    // Last resort: far west of site centre, still labelled as illustrative primaries.
-    for (let i = 0; i < count; i++) {
-      const along = (i - (count - 1) / 2) * spacing;
-      out.push(makeRectBasin(site.cx - 220 + -sin * along, site.cz + cos * along, hw, hd, yaw));
-    }
-  }
-  return out;
+  if (best) return best.fs;
+  // Last resort (no clear ground found): legacy west-of-aeration bank, still (est.).
+  const westEdge = aerBoxes.length ? Math.min(...aerBoxes.map((b) => b.minX)) : site.cx - 160;
+  return bankAt(westEdge - 28 - hw, aerC.z, yaw0);
 }
 
 /**
@@ -351,6 +569,8 @@ export function buildGisLayout(
     disinfection: 'uv' | 'chlorine' | 'none';
     uvBanks: number;
     chlorineChannels: number;
+    /** research.process includes anaerobic_digestion → snap OSM storage tanks as digesters. */
+    hasDigestion?: boolean;
   },
 ): GisLayoutResult {
   const empty: GisLayoutResult = {
@@ -471,9 +691,35 @@ export function buildGisLayout(
 
   const siteCx = (bounds.minX + bounds.maxX) / 2;
   const siteCz = (bounds.minZ + bounds.maxZ) / 2;
-  if (kitRectPrimary) {
-    primaryFs = kitchenerRectPrimaries({ cx: siteCx, cz: siteCz }, aerationFs.length ? aerationFs : basins);
+  const fence = wwtpRing(pack);
+  const obs = new SiteObstacles(pack, fence, {
+    minX: bounds.minX - 60,
+    maxX: bounds.maxX + 60,
+    minZ: bounds.minZ - 60,
+    maxZ: bounds.maxZ + 60,
+  });
+  // Every mapped process footprint is an obstacle for estimated units.
+  for (const f of footprints) obs.addRing(f.ring);
+
+  // Anaerobic digesters: OSM man_made=storage_tank rings inside the plant fence (Waterloo
+  // ways 799495393/799495394). Footprint-backed → true ring, real size, not estimated.
+  const digesterFs: FootprintRing[] = [];
+  if (counts.hasDigestion && fence) {
+    for (const f of pack.geojson.features as GeoFeature[]) {
+      if (f.properties.kind !== 'building' || f.geometry.type !== 'Polygon') continue;
+      if (f.properties.man_made !== 'storage_tank' && f.properties.building !== 'storage_tank') continue;
+      const ring = f.geometry.coordinates[0] as number[][];
+      const fp = classifyFootprint(ring);
+      if (!fp || fp.circularity < 0.85 || fp.area < 300 || fp.area > 3000) continue;
+      if (!pointInRing(fp.cx, fp.cz, fence)) continue;
+      digesterFs.push({ ...fp, kind: 'clarifier' });
+    }
   }
+
+  if (kitRectPrimary) {
+    primaryFs = kitchenerRectPrimaries({ cx: siteCx, cz: siteCz }, aerationFs.length ? aerationFs : basins, obs);
+  }
+  for (const f of primaryFs) if (f.circularity < 0.7) obs.addRing(f.ring);
 
   if (primaryFs.length && counts.hasPrimary) {
     const c = centroidOf(primaryFs);
@@ -494,7 +740,7 @@ export function buildGisLayout(
         ? {
             estimated: true,
             estimateNote:
-              'Estimated placement, not from OSM — rectangular primaries are not mapped in OpenStreetMap; 45×18 m tanks placed west of aeration as a stand-in.',
+              'Estimated placement, not from OSM — rectangular primaries are not mapped in OpenStreetMap; 45×18 m tanks set on clear ground inside the plant fence beside aeration (collision-checked against mapped buildings, roads and tanks).',
           }
         : {}),
     });
@@ -544,6 +790,21 @@ export function buildGisLayout(
     });
   }
 
+  if (digesterFs.length) {
+    const c = centroidOf(digesterFs);
+    snaps.push({
+      id: 'digesters',
+      label: 'Anaerobic Digesters',
+      kind: 'cyl',
+      x: c.x,
+      z: c.z,
+      yaw: 0,
+      count: digesterFs.length,
+      radiusM: avgRadius(digesterFs),
+      footprints: digesterFs,
+    });
+  }
+
   // Unused / standby clarifiers (e.g. KIT south ~885 m² tanks) — keep visible + labelled.
   const usedClarKeys = new Set(
     [...primaryFs, ...secondaryFs]
@@ -575,7 +836,7 @@ export function buildGisLayout(
   };
 
   // Headworks / UV / solids: park beside the process cluster (not full WWTP corners).
-  const processPts = snaps.flatMap((s) =>
+  const processPts = snaps.filter((s) => s.id !== 'digesters').flatMap((s) =>
     s.footprints.length
       ? s.footprints.map((f) => ({ x: f.cx, z: f.cz }))
       : [{ x: s.x, z: s.z }],
@@ -588,13 +849,28 @@ export function buildGisLayout(
     const minZ = Math.min(...zs);
     const maxZ = Math.max(...zs);
     const midZ = (minZ + maxZ) / 2;
-    const headX = minX - 36;
+    let headX = minX - 36;
+    let headZ = midZ;
+    // Headworks box is 16×12 m; keep it off mapped buildings/roads/tanks and inside the fence.
+    if (!obs.rectClear(headX, headZ, 8, 6, 0, 5, 8)) {
+      // Upstream of the primaries (away from aeration), else of the westernmost unit.
+      const pri = snaps.find((s) => s.id === 'primary');
+      const aerS = snaps.find((s) => s.id === 'aeration');
+      const anchor = pri ? { x: pri.x, z: pri.z } : { x: minX, z: midZ };
+      const away = pri && aerS ? Math.atan2(pri.z - aerS.z, pri.x - aerS.x) : Math.PI;
+      const hp = placeClearBox(obs, anchor, 8, 6, 20, 160, away);
+      if (hp) {
+        headX = hp.x;
+        headZ = hp.z;
+      }
+    }
+    obs.addRect(headX, headZ, 8, 6);
     snaps.unshift({
       id: 'headworks',
       label: 'Headworks',
       kind: 'rect',
       x: headX,
-      z: midZ,
+      z: headZ,
       yaw: 0,
       count: 1,
       footprints: [],
@@ -606,8 +882,9 @@ export function buildGisLayout(
     const blockers = snaps.flatMap((s) => s.footprints);
     const aer = snaps.find((s) => s.id === 'aeration');
     const dis = placeDisinfection(pack, bounds, blockers, sec, aer ? { x: aer.x, z: aer.z } : null, { x: maxX, z: midZ }, [
-      { x: headX, z: midZ, half: 12 },
+      { x: headX, z: headZ, half: 12 },
     ]);
+    obs.addRect(dis.x, dis.z, 10, 6);
     if (counts.disinfection === 'uv' && counts.uvBanks > 0) {
       snaps.push({
         id: 'disinfection',
@@ -636,17 +913,36 @@ export function buildGisLayout(
       });
     }
 
+    // Solids building (22×14 m): beside the mapped digesters when present, else south of the train.
+    let solids = { x: (minX + maxX) / 2, z: maxZ + 32 };
+    let solidsNote = 'Estimated placement, not from OSM — schematic solids building.';
+    if (digesterFs.length) {
+      const dc = centroidOf(digesterFs);
+      const dr = Math.max(...digesterFs.map((f) => Math.hypot(f.cx - dc.x, f.cz - dc.z) + Math.sqrt(f.area / Math.PI)));
+      // Prefer the side facing the process train.
+      const toTrain = Math.atan2((minZ + maxZ) / 2 - dc.z, (minX + maxX) / 2 - dc.x);
+      const sp = placeClearBox(obs, dc, 11, 7, 10, dr + 120, toTrain);
+      if (sp) {
+        solids = sp;
+        solidsNote =
+          'Estimated placement, not from OSM — schematic solids building set on clear ground beside the mapped anaerobic digesters (OSM does not tag a solids/dewatering building).';
+      }
+    } else if (!obs.rectClear(solids.x, solids.z, 11, 7, 0, 5, 8)) {
+      const sp = placeClearBox(obs, { x: (minX + maxX) / 2, z: maxZ }, 11, 7, 24, 160, Math.PI / 2);
+      if (sp) solids = sp;
+    }
+    obs.addRect(solids.x, solids.z, 11, 7);
     snaps.push({
       id: 'solids',
       label: 'Solids Handling',
       kind: 'rect',
-      x: (minX + maxX) / 2,
-      z: maxZ + 32,
+      x: solids.x,
+      z: solids.z,
       yaw: 0,
       count: 1,
       footprints: [],
       estimated: true,
-      estimateNote: 'Estimated placement, not from OSM — schematic solids building.',
+      estimateNote: solidsNote,
     });
   }
 

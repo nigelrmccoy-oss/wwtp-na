@@ -14,3 +14,6 @@ interface ImportMeta {
 
 /** Injected by vite.config.ts from package.json. */
 declare const __APP_VERSION__: string;
+
+/** public/sfx override files present at build/dev-server start (vite.config.ts). */
+declare const __SFX_FILES__: string[];

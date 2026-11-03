@@ -4,7 +4,7 @@ v0.1 uses **synthesized Web Audio** loops/oneshots in `src/audio/AudioEngine.ts`
 
 ## Optional file overrides
 
-If present, these files in this folder replace the procedural voices:
+If present, these files in this folder replace the procedural voices. The folder is listed when Vite starts/builds (`__SFX_FILES__`), and only files that exist are fetched — restart the dev server after adding one:
 
 | File | Notes |
 |------|--------|

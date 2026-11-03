@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { PlantTextures } from './textures';
 import { asphaltMat, concreteMat, waterMat, grassMat } from './textures';
 import { groundY, type DemData, type TerrainOpts } from './terrain';
-import { classifyFootprint } from './gisLayout';
+import { classifyFootprint, roadWidth } from './gisLayout';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
@@ -158,14 +158,6 @@ function majorAxisYaw(ring: number[][]): number {
   return angle;
 }
 
-function roadWidth(highway: string | null | undefined): number {
-  if (!highway) return 4;
-  if (/motorway|trunk/.test(highway)) return 10;
-  if (/primary|secondary/.test(highway)) return 7;
-  if (/tertiary|residential|unclassified/.test(highway)) return 5;
-  if (/service|track|path|footway|cycleway/.test(highway)) return 2.8;
-  return 4.5;
-}
 
 
 /** Illustrative barn / fields / driveway when farm-septic has no nearby OSM. */

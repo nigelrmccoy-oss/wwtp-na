@@ -451,6 +451,8 @@ function placeClearBox(
   rMin: number,
   rMax: number,
   prefer: number | null = null,
+  margin = 5,
+  fenceMargin = 8,
 ): { x: number; z: number } | null {
   const base = prefer ?? 0;
   for (let r = rMin; r <= rMax; r += 4) {
@@ -460,7 +462,7 @@ function placeClearBox(
       const a = base + off;
       const x = anchor.x + Math.cos(a) * r;
       const z = anchor.z + Math.sin(a) * r;
-      if (obs.rectClear(x, z, hw, hd, 0, 5, 8)) return { x, z };
+      if (obs.rectClear(x, z, hw, hd, 0, margin, fenceMargin)) return { x, z };
     }
   }
   return null;
@@ -557,6 +559,54 @@ function kitchenerRectPrimaries(
  * Build GIS-snapped unit placements for a plant. Returns used=false when the
  * bake lacks enough on-site water footprints (caller falls back to schematic).
  */
+/**
+ * Digesters that OSM maps only as arcs of an untagged compound building outline.
+ *
+ * Kitchener WWTP (way 515109518, `building=yes`, 93 vertices live / 48 in the bake) traces the
+ * solids area as ONE polygon: four round tank walls joined by the digester/boiler building. There
+ * is no man_made=storage_tank tag anywhere on site, so the storage-tank rule above finds nothing.
+ * Least-squares circles fitted to the way's own vertices (v0.3.13 QA, scripts in the PR body):
+ *   dome E  centre (-246.06, -194.47) m, r 15.58 m (d 31.2 m, 762 m²), RMS 0.003 m over 328° of arc
+ *   dome W  centre (-275.09, -174.24) m, r 15.80 m (d 31.6 m, 784 m²), RMS 0.003 m over 305° of arc
+ * Esri World Imagery shows both as domed/membrane-roofed tanks beside the boiler building, and the
+ * Region's TM2/TM7 give 2 primary digesters, 16,490 m³ at 10.9 m SWD → 756 m² (d 31.0 m) each.
+ * (The two bigger, ribbed tanks on the west end of the same way carry rake bridges — clarifiers /
+ * thickeners — and are deliberately not used.) Coordinates are bake metres (same frame as the geo pack).
+ */
+const ARC_DIGESTERS: Record<string, { wayId: number; tanks: { cx: number; cz: number; r: number }[] }> = {
+  kitchener: {
+    wayId: 515109518,
+    tanks: [
+      { cx: -246.06, cz: -194.47, r: 15.58 },
+      { cx: -275.09, cz: -174.24, r: 15.8 },
+    ],
+  },
+};
+
+/** Ring (closed, 72 vertices on the circle) for a fitted tank. */
+function circleRing(cx: number, cz: number, r: number): number[][] {
+  const n = 72;
+  const ring: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    ring.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]);
+  }
+  ring.push(ring[0].slice());
+  return ring;
+}
+
+/** True when ≥ minVerts vertices of some mapped building lie within tol m of the fitted circle. */
+function circleSupportedByBuilding(pack: PlantGeoPack, t: { cx: number; cz: number; r: number }, minVerts = 8, tol = 0.15): boolean {
+  for (const f of pack.geojson.features as GeoFeature[]) {
+    if (f.properties.kind !== 'building' || f.geometry.type !== 'Polygon') continue;
+    const ring = f.geometry.coordinates[0] as number[][];
+    let n = 0;
+    for (const p of ring) if (Math.abs(Math.hypot(p[0] - t.cx, p[1] - t.cz) - t.r) <= tol) n++;
+    if (n >= minVerts) return true;
+  }
+  return false;
+}
+
 export function buildGisLayout(
   pack: PlantGeoPack | null,
   plantId: string,
@@ -716,6 +766,23 @@ export function buildGisLayout(
     }
   }
 
+  // No storage-tank tags (Kitchener): use the circles mapped inside the untagged compound building
+  // way, but only while the bake still holds vertices lying on each fitted circle.
+  const arcCfg = ARC_DIGESTERS[plantId];
+  if (counts.hasDigestion && fence && !digesterFs.length && arcCfg) {
+    for (const t of arcCfg.tanks) {
+      if (!circleSupportedByBuilding(pack, t)) continue;
+      const fp = classifyFootprint(circleRing(t.cx, t.cz, t.r));
+      if (!fp) continue;
+      if (!pointInRing(fp.cx, fp.cz, fence)) continue;
+      // True-scale circle: centroid is the fitted centre, area is exactly πr².
+      digesterFs.push({ ...fp, cx: t.cx, cz: t.cz, area: Math.PI * t.r * t.r, kind: 'clarifier' });
+    }
+  }
+
+  // v0.3.13: mapped digesters are obstacles too, so est. headworks/UV/solids keep their clearance from them.
+  for (const f of digesterFs) obs.addRing(f.ring);
+
   if (kitRectPrimary) {
     primaryFs = kitchenerRectPrimaries({ cx: siteCx, cz: siteCz }, aerationFs.length ? aerationFs : basins, obs);
   }
@@ -806,11 +873,12 @@ export function buildGisLayout(
   }
 
   // Unused / standby clarifiers (e.g. KIT south ~885 m² tanks) — keep visible + labelled.
-  const usedClarKeys = new Set(
-    [...primaryFs, ...secondaryFs]
-      .filter((f) => f.circularity >= 0.7)
-      .map((f) => `${f.cx.toFixed(1)},${f.cz.toFixed(1)}`),
-  );
+  // v0.3.13: key on every footprint handed to primary/secondary (not just circular ones) —
+  // Ashbridges Bay promotes low-circularity basins to clarifier slots, and skipping those
+  // re-listed the same two 2753 m² tanks as "standby", stacking duplicate meshes under the real
+  // primaries (hover then picked the wrong unit). Synthetic KIT rect primaries never share a
+  // key with a mapped clarifier, so they are harmless here.
+  const usedClarKeys = new Set([...primaryFs, ...secondaryFs].map((f) => `${f.cx.toFixed(1)},${f.cz.toFixed(1)}`));
   const unusedClar = clarifiers.filter((f) => !usedClarKeys.has(`${f.cx.toFixed(1)},${f.cz.toFixed(1)}`));
   if (unusedClar.length) {
     const c = centroidOf(unusedClar);
@@ -852,16 +920,23 @@ export function buildGisLayout(
     let headX = minX - 36;
     let headZ = midZ;
     // Headworks box is 16×12 m; keep it off mapped buildings/roads/tanks and inside the fence.
-    if (!obs.rectClear(headX, headZ, 8, 6, 0, 5, 8)) {
+    // v0.3.13: ≥15 m clear of every mapped unit/building (v0.3.12 used 5 m, which left WAT's
+    // est. headworks ~6 m from Primary #3). Relax only if no 15 m spot exists inside the fence.
+    const HEAD_CLEAR_M = 15;
+    if (!obs.rectClear(headX, headZ, 8, 6, 0, HEAD_CLEAR_M, 8)) {
       // Upstream of the primaries (away from aeration), else of the westernmost unit.
       const pri = snaps.find((s) => s.id === 'primary');
       const aerS = snaps.find((s) => s.id === 'aeration');
       const anchor = pri ? { x: pri.x, z: pri.z } : { x: minX, z: midZ };
       const away = pri && aerS ? Math.atan2(pri.z - aerS.z, pri.x - aerS.x) : Math.PI;
-      const hp = placeClearBox(obs, anchor, 8, 6, 20, 160, away);
-      if (hp) {
-        headX = hp.x;
-        headZ = hp.z;
+      // Prefer the full 15 m (tightening the fence inset to 3 m before giving up on it), then relax.
+      for (const [margin, fenceMargin] of [[HEAD_CLEAR_M, 8], [HEAD_CLEAR_M, 3], [10, 8], [5, 8]]) {
+        const hp = placeClearBox(obs, anchor, 8, 6, 20, 160, away, margin, fenceMargin);
+        if (hp) {
+          headX = hp.x;
+          headZ = hp.z;
+          break;
+        }
       }
     }
     obs.addRect(headX, headZ, 8, 6);
@@ -921,7 +996,16 @@ export function buildGisLayout(
       const dr = Math.max(...digesterFs.map((f) => Math.hypot(f.cx - dc.x, f.cz - dc.z) + Math.sqrt(f.area / Math.PI)));
       // Prefer the side facing the process train.
       const toTrain = Math.atan2((minZ + maxZ) / 2 - dc.z, (minX + maxX) / 2 - dc.x);
-      const sp = placeClearBox(obs, dc, 11, 7, 10, dr + 120, toTrain);
+      // v0.3.13: the 15 m headworks clearance can take the ground beside the digesters (Waterloo), so
+      // try hard to stay within ~50 m of them (tighter fence inset / margin) before searching further out.
+      let sp: { x: number; z: number } | null = null;
+      for (const rMax of [dr + 50, dr + 120]) {
+        for (const [margin, fenceMargin] of [[5, 8], [5, 3], [3, 3]]) {
+          sp = placeClearBox(obs, dc, 11, 7, 10, rMax, toTrain, margin, fenceMargin);
+          if (sp) break;
+        }
+        if (sp) break;
+      }
       if (sp) {
         solids = sp;
         solidsNote =

@@ -41,6 +41,11 @@ export const UNIT_EXPLAINERS: Record<string, UnitExplainer> = {
     blurb: 'Final pathogen kill — UV lamps or chlorine/NaOCl contact before the outfall. Required for ECA compliance.',
     scadaControls: ['spDisinfect'],
   },
+  'clarifiers-standby': {
+    name: 'Clarifiers (standby)',
+    blurb: 'Mapped clarifier tanks that are not part of the active primary / secondary train in this sim — kept visible at their real OSM footprints.',
+    scadaControls: [],
+  },
   solids: {
     name: 'Solids handling',
     blurb: 'Thickening, digestion, dewatering — where Waste Activated Sludge (WAS) becomes biosolids.',

@@ -1611,12 +1611,14 @@ export class PlantScene {
     for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
     const raw = this.raycaster.intersectObjects(meshes, false);
     if (!raw.length) return null;
-    // Real geometry wins over label sprites: labels are depthTest:false billboards ~22 m wide,
-    // so a nearer unit's label (e.g. Waterloo Outfall) used to steal the hover from the
-    // building actually under the cursor (Headworks). Labels still pick when nothing else does.
-    const isLabel = (o: THREE.Object3D) => (o as THREE.Sprite).isSprite === true;
-    const hits = [...raw.filter((h) => !isLabel(h.object)), ...raw.filter((h) => isLabel(h.object))];
-
+    // v0.3.13 pick order (what the user actually sees under the cursor):
+    //  1. a label pill that is really under the cursor — labels are depthTest:false billboards
+    //     drawn on top of everything, so the label's own unit wins (the quad is 22 m wide but only
+    //     the pill is painted; the transparent margin never counts, which keeps the v0.3.12 fix
+    //     where a neighbour's label margin stole hover from the building underneath);
+    //  2. real process-unit geometry, nearest first (ground aprons are only a fallback);
+    //  3. OSM context buildings, then the big WWTP footprint polygon;
+    //  4. the transparent margin of a label, when nothing else is hit.
     const resolveId = (start: THREE.Object3D | null): string | undefined => {
       let obj: THREE.Object3D | null = start;
       while (obj) {
@@ -1626,18 +1628,29 @@ export class PlantScene {
       }
       return undefined;
     };
-
-    for (const hit of hits) {
-      const id = resolveId(hit.object);
-      if (id && !id.startsWith('osm_')) {
-        return this.units.find((u) => u.id === id) ?? null;
+    const rank = (h: THREE.Intersection): number => {
+      const id = resolveId(h.object);
+      if (!id) return 99;
+      if ((h.object as THREE.Sprite).isSprite === true) {
+        const uv = h.uv;
+        const onPill = !!uv && uv.x > 16 / 1024 && uv.x < 1008 / 1024 && uv.y > 40 / 256 && uv.y < 216 / 256;
+        return onPill ? 0 : 4;
+      }
+      if (id === 'osm_wwtp') return 3;
+      if (id.startsWith('osm_')) return 2;
+      return h.object.name === 'apron' ? 1.5 : 1;
+    };
+    let best: THREE.Intersection | null = null;
+    let bestRank = 99;
+    for (const hit of raw) {
+      const r = rank(hit);
+      if (r < bestRank) {
+        best = hit;
+        bestRank = r;
       }
     }
-    for (const hit of hits) {
-      const id = resolveId(hit.object);
-      if (id) return this.units.find((u) => u.id === id) ?? null;
-    }
-    return null;
+    const bestId = best ? resolveId(best.object) : undefined;
+    return bestId ? this.units.find((u) => u.id === bestId) ?? null : null;
   }
 
   private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {

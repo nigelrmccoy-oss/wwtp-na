@@ -172,7 +172,7 @@ button:hover{filter:brightness(1.08)}
 }
 
 .hover-tip{
-  pointer-events:auto;position:fixed;z-index:20;
+  pointer-events:none;position:fixed;z-index:20;
   width:min(280px,70vw);padding:.55rem .65rem;
   background:rgba(10,16,26,.94);border:1px solid #4a6a88;border-radius:8px;
   box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:12px;color:#dce8f4;
@@ -184,6 +184,9 @@ button:hover{filter:brightness(1.08)}
   background:#1a5a45;border:1px solid #2a8a6a;border-radius:4px;color:#c8ffe0;cursor:pointer;
 }
 .hover-open:hover{filter:brightness(1.1)}
+.hover-tip.pinned{pointer-events:auto;border-color:#7ab0d8}
+.hover-tip:not(.pinned) .hover-open{opacity:.55}
+.hover-pin-hint{margin-top:.4rem;font-size:10.5px;opacity:.7}
 
 .autopilot-badge{
   font-size:10px;font-weight:800;letter-spacing:.06em;

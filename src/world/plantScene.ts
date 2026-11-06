@@ -40,6 +40,20 @@ export interface PlantSceneOpts {
   onCamCycleChange?: (label: string) => void;
 }
 
+/**
+ * Farm Class 4 septic layout, metres in the schematic frame (centred on the flattened pad).
+ * Footprints: house 12.4×10.4 (roof), tank 7.5×3.4, d-box 2.0×2.0, bed 22×16, well apron Ø2.
+ */
+export const SEPTIC = {
+  well: { x: -31, z: -1 },
+  house: { x: -17, z: -1 },
+  tank: { x: -4, z: -1 },
+  dbox: { x: 4, z: -1 },
+  bed: { x: 19, z: 0 },
+  /** Flattened pad that holds the whole farmstead system (x −32…30, z −8…8). */
+  pad: { w: 70, d: 26 },
+} as const;
+
 export class PlantScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
@@ -457,12 +471,12 @@ export class PlantScene {
     this.gisSummary = this.gis.summary;
 
     const size = this.plant.size;
-    const schematicPadW =
-      (size === 'xlarge' || size === 'extra-large' ? 140 : size === 'large' ? 125 : 110) *
-      this.plant.layoutScale;
-    const schematicPadD =
-      (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) *
-      this.plant.layoutScale;
+    const schematicPadW = this.plant.isSeptic
+      ? SEPTIC.pad.w
+      : (size === 'xlarge' || size === 'extra-large' ? 140 : size === 'large' ? 125 : 110) * this.plant.layoutScale;
+    const schematicPadD = this.plant.isSeptic
+      ? SEPTIC.pad.d
+      : (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) * this.plant.layoutScale;
 
     // Asphalt = process yard only; siteBounds = full WWTP (camera / minimap / context).
     const padW = this.gis.pad?.w ?? schematicPadW;
@@ -638,6 +652,15 @@ export class PlantScene {
         // Un-rotate into group local frame (inverse of Three.js rotation.y = snap.yaw)
         const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
         const before = group.children.length;
+        // v0.3.13: square/rectangular OSM tanks promoted into clarifier slots (Ashbridges Bay
+        // 84×33 m primaries, circ 0.63; Woodward 36×36 m, circ 0.79) were drawn as equal-area
+        // circles, which spilled ~23 m into the neighbouring tank. Draw those as their true ring.
+        if (snap.id !== 'digesters' && fp.circularity < 0.85) {
+          this.addFootprintBasin(group, fp, px, pz, 3.2, snap.id, snap.yaw);
+          const added = group.children[before];
+          if (added) added.userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'basin', ring: fp.ring };
+          continue;
+        }
         if (snap.id === 'digesters') this.addDigesterTank(group, px, pz, r, snap.id);
         else this.addWalledClarifier(group, px, pz, r, 3.2, snap.id);
         // QA: tag the shell so harnesses can compare world centroid vs OSM footprint
@@ -1110,10 +1133,17 @@ export class PlantScene {
     const units: { id: string; label: string; kind: string; x: number; z: number; count: number }[] =
       this.plant.isSeptic
         ? [
-            { id: 'house', label: 'Farmhouse', kind: 'rect', x: -28, z: 10, count: 1 },
-            { id: 'septic_tank', label: 'Septic Tank', kind: 'septic_tank', x: -12, z: 4, count: 1 },
-            { id: 'distribution', label: 'Distribution Box', kind: 'dbox', x: 8, z: 2, count: 1 },
-            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'leach', x: 48, z: 28, count: 1 },
+            // v0.3.13: true metres (NOT × layoutScale — the meshes are full size, so scaling only the
+            // positions by 0.28 dropped the 7.5 m tank 5.6 m inside the 12.4 m farmhouse). Textbook
+            // Ontario Class 4 layout (OBC 8.2.1.6 clearances), gravity flow west → east:
+            //   house ─3.0 m─ tank ─3.3 m─ distribution box ─3.0 m─ leaching bed
+            //   tank ≥1.5 m from the house (3.0 m here), bed ≥5 m from any building (18.8 m),
+            //   drilled well ≥15 m from tank (22.7 m) and bed (38.4 m; ≥30 m even for a dug well).
+            { id: 'well', label: 'Drilled Well', kind: 'well', x: SEPTIC.well.x, z: SEPTIC.well.z, count: 1 },
+            { id: 'house', label: 'Farmhouse', kind: 'rect', x: SEPTIC.house.x, z: SEPTIC.house.z, count: 1 },
+            { id: 'septic_tank', label: 'Septic Tank', kind: 'septic_tank', x: SEPTIC.tank.x, z: SEPTIC.tank.z, count: 1 },
+            { id: 'distribution', label: 'Distribution Box', kind: 'dbox', x: SEPTIC.dbox.x, z: SEPTIC.dbox.z, count: 1 },
+            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'leach', x: SEPTIC.bed.x, z: SEPTIC.bed.z, count: 1 },
           ]
         : [
             { id: 'headworks', label: 'Headworks', kind: 'rect', x: -38, z: -8, count: 1 },
@@ -1172,14 +1202,18 @@ export class PlantScene {
       });
     }
 
+    // Every group drawn for a unit (the large-plant mirror train is a second group).
+    const unitGroups = new Map<string, THREE.Object3D[]>();
     for (const u of units) {
       if (u.count <= 0 && u.kind !== 'rect') continue;
       const group = new THREE.Group();
+      unitGroups.set(u.id, [group]);
       const zOff =
         !this.plant.isSeptic && trainOffsetZ && u.id !== 'solids' && u.id !== 'digesters'
           ? -trainOffsetZ * 0.15
           : 0;
-      group.position.set(u.x * s, 0, (u.z + zOff) * s);
+      const ps = this.plant.isSeptic ? 1 : s;
+      group.position.set(u.x * ps, 0, (u.z + zOff) * ps);
       group.userData.unitId = u.id;
 
       if (u.kind === 'cyl') {
@@ -1225,6 +1259,22 @@ export class PlantScene {
         riser.position.set(0, 1.85, 0);
         riser.userData.unitId = u.id;
         group.add(riser);
+      } else if (u.kind === 'well') {
+        // Drilled well: steel casing ~0.4 m above grade on a sloped concrete apron, with a cap.
+        const apron = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.0, 0.18, 20), this.mats.concrete);
+        apron.position.y = 0.09;
+        apron.receiveShadow = true;
+        apron.userData.unitId = u.id;
+        group.add(apron);
+        const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.6, 14), this.mats.metal);
+        casing.position.y = 0.45;
+        casing.castShadow = true;
+        casing.userData.unitId = u.id;
+        group.add(casing);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.12, 14), this.mats.painted);
+        cap.position.y = 0.8;
+        cap.userData.unitId = u.id;
+        group.add(cap);
       } else if (u.kind === 'dbox') {
         const box = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), this.mats.concrete);
         box.position.y = 0.35;
@@ -1310,6 +1360,7 @@ export class PlantScene {
         u.kind !== 'ditch'
       ) {
         const mirror = group.clone(true);
+        unitGroups.get(u.id)!.push(mirror);
         mirror.position.z += trainOffsetZ * s;
         mirror.traverse((o) => {
           if (o.userData) o.userData.unitId = u.id;
@@ -1319,7 +1370,7 @@ export class PlantScene {
 
       const label = this.makeLabel(u.label);
       const labelY =
-        u.kind === 'ditch' ? 9.5 : u.kind === 'leach' ? 4.5 : u.kind === 'septic_tank' || u.kind === 'dbox' ? 3.8 : 8.2;
+        u.kind === 'ditch' ? 9.5 : u.kind === 'leach' ? 4.5 : u.kind === 'septic_tank' || u.kind === 'dbox' || u.kind === 'well' ? 3.8 : this.plant.isSeptic ? 7.2 : 8.2;
       label.position.set(0, labelY, 0);
       group.add(label);
 
@@ -1329,24 +1380,78 @@ export class PlantScene {
 
     if (!this.plant.isSeptic) {
       this.addOutfall(58 * s, 8 * s, 0);
-      this.addPiping([
-        { x0: -38 * s, z0: -8 * s, x1: -18 * s, z1: -12 * s },
-        { x0: -18 * s, z0: -12 * s, x1: 8 * s, z1: -10 * s },
-        { x0: 8 * s, z0: -10 * s, x1: 32 * s, z1: -12 * s },
-        { x0: 32 * s, z0: -12 * s, x1: 48 * s, z1: 4 * s },
-        { x0: 48 * s, z0: 4 * s, x1: 58 * s, z1: 8 * s },
-      ]);
+      const outfall = this.units.find((u) => u.id === 'outfall');
+      if (outfall) unitGroups.set('outfall', [outfall.mesh]);
+      // v0.3.13: positions scale with layoutScale but the meshes do not, so at small plants
+      // (St. Jacobs, s = 0.5) UV / tertiary / outfall landed on top of each other and hover read
+      // the neighbour. Push each unit clear of the ones already placed, then pipe what is drawn.
+      this.separateSchematicUnits(unitGroups, 4);
+      const order = ['headworks', 'primary', 'aeration', 'secondary', 'tertiary', 'disinfection', 'outfall'];
+      const pts = order
+        .filter((id) => unitGroups.has(id))
+        .map((id) => unitGroups.get(id)![0].position)
+        .map((p) => ({ x: p.x, z: p.z }));
+      this.addPiping(pts.slice(1).map((p, i) => ({ x0: pts[i].x, z0: pts[i].z, x1: p.x, z1: p.z })));
     }
 
     this.orbitDist = 42 + 28 * s;
     if (this.plant.isSeptic) {
-      this.orbitTarget.set(12 * s, 0, 12 * s);
-      this.walkPos.set(-8 * s, this.sampleEyeY(-8 * s, 22 * s), 22 * s);
-      this.orbitDist = 50 + 20 * s;
+      // Gravity sewer / effluent lines, edge to edge: house → tank → distribution box → bed header.
+      const t = SEPTIC;
+      this.addPiping([
+        { x0: t.house.x + 6.2, z0: t.house.z, x1: t.tank.x - 3.75, z1: t.tank.z },
+        { x0: t.tank.x + 3.75, z0: t.tank.z, x1: t.dbox.x - 1.0, z1: t.dbox.z },
+        { x0: t.dbox.x + 1.0, z0: t.dbox.z, x1: t.bed.x - 11, z1: t.dbox.z },
+      ]);
+      this.orbitTarget.set(-1, 0, 0);
+      this.walkPos.set(2, this.sampleEyeY(2, 16), 16);
+      this.orbitDist = 64;
       this.pitch = -0.72;
     } else {
       this.orbitTarget.set(8 * s, 0, -4 * s);
       this.walkPos.set(28 * s, this.sampleEyeY(28 * s, 38 * s), 38 * s);
+    }
+  }
+
+  /**
+   * Schematic layouts: push units (in build order) until each one's mesh footprint is at least
+   * `gap` m clear of every earlier unit. Moves along the axis of least overlap, away from the
+   * unit it hit. Labels / aprons are ignored (labels declutter in screen space).
+   */
+  private separateSchematicUnits(unitGroups: Map<string, THREE.Object3D[]>, gap: number): void {
+    const footprint = (groups: THREE.Object3D[]): THREE.Box3 => {
+      const b = new THREE.Box3();
+      for (const g of groups) {
+        g.updateWorldMatrix(true, true);
+        g.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o.name !== 'apron') b.expandByObject(o);
+        });
+      }
+      return b;
+    };
+    const ids = [...unitGroups.keys()];
+    const placed: THREE.Box3[] = [];
+    for (const id of ids) {
+      const groups = unitGroups.get(id)!;
+      for (let iter = 0; iter < 60; iter++) {
+        const b = footprint(groups);
+        if (b.isEmpty()) break;
+        const hit = placed.find(
+          (p) =>
+            b.min.x < p.max.x + gap && b.max.x > p.min.x - gap && b.min.z < p.max.z + gap && b.max.z > p.min.z - gap,
+        );
+        if (!hit) break;
+        const bc = b.getCenter(new THREE.Vector3());
+        const hc = hit.getCenter(new THREE.Vector3());
+        const sx = bc.x >= hc.x ? 1 : -1;
+        const sz = bc.z >= hc.z ? 1 : -1;
+        const dx = sx > 0 ? hit.max.x + gap - b.min.x : b.max.x - (hit.min.x - gap);
+        const dz = sz > 0 ? hit.max.z + gap - b.min.z : b.max.z - (hit.min.z - gap);
+        const move = dx <= dz ? new THREE.Vector3(sx * (dx + 0.01), 0, 0) : new THREE.Vector3(0, 0, sz * (dz + 0.01));
+        for (const g of groups) g.position.add(move);
+      }
+      const fb = footprint(groups);
+      if (!fb.isEmpty()) placed.push(fb);
     }
   }
 
@@ -1476,9 +1581,40 @@ export class PlantScene {
     this.pitch = -0.06;
   }
 
+  /** World AABBs of each process unit's meshes (touching boxes merged), for label placement. */
+  private labelGeomBoxes: { unitId: string; boxes: THREE.Box3[] }[] | null = null;
+
+  private buildLabelGeomBoxes(): { unitId: string; boxes: THREE.Box3[] }[] {
+    const out: { unitId: string; boxes: THREE.Box3[] }[] = [];
+    for (const u of this.units) {
+      if (u.id.startsWith('osm_')) continue;
+      u.mesh.updateWorldMatrix(true, true);
+      const boxes: THREE.Box3[] = [];
+      u.mesh.traverse((o) => {
+        if (!(o as THREE.Mesh).isMesh || o.name === 'apron' || o.userData.pipeChevron) return;
+        const g = (o as THREE.Mesh).geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        const b = g.boundingBox!.clone().applyMatrix4(o.matrixWorld);
+        if (b.isEmpty()) return;
+        const hit = boxes.find((x) => x.clone().expandByScalar(0.5).intersectsBox(b));
+        if (hit) hit.union(b);
+        else boxes.push(b);
+      });
+      out.push({ unitId: u.id, boxes });
+    }
+    return out;
+  }
+
   /**
    * Screen-space label declutter: nearer labels keep their anchor, overlapping ones are
-   * stacked upward (via Sprite.center, i.e. whole label heights) so text never overlaps.
+   * stacked upward in whole label heights so text never overlaps.
+   *
+   * v0.3.13: (1) labels are lifted by moving the sprite itself along the camera's up vector
+   * (not Sprite.center), so the sprite's world position is where the pill is drawn and picked;
+   * (2) a label also steps up until its pill clears every OTHER unit's mesh on screen, when
+   * that is possible within 6 steps (orbit views only) — a pill drawn over a neighbour's body would otherwise win
+   * the pick (labels draw on top) and hover would name the label's unit, not the body
+   * (St. Jacobs bird: Secondary's pill over the UV channel, UV's pill over the outfall).
    */
   private declutterLabels(): void {
     const sprites = this.labelSprites.filter((sp) => sp.visible && sp.parent);
@@ -1488,36 +1624,95 @@ export class PlantScene {
     const W = canvas.clientWidth || window.innerWidth;
     const f = H / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
     const v = new THREE.Vector3();
+    this.camera.updateMatrixWorld();
+    const toScreen = (p: THREE.Vector3): [number, number] | null => {
+      v.copy(p).project(this.camera);
+      if (v.z > 1 || v.z < -1) return null;
+      return [(v.x * 0.5 + 0.5) * W, (-v.y * 0.5 + 0.5) * H];
+    };
+    // Other units' meshes as screen rects.
+    this.labelGeomBoxes ??= this.buildLabelGeomBoxes();
+    const geomRects: { unitId: string; x0: number; x1: number; y0: number; y1: number }[] = [];
+    const corner = new THREE.Vector3();
+    for (const g of this.labelGeomBoxes) {
+      for (const b of g.boxes) {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        let ok = true;
+        for (let c = 0; c < 8 && ok; c++) {
+          corner.set(c & 1 ? b.max.x : b.min.x, c & 2 ? b.max.y : b.min.y, c & 4 ? b.max.z : b.min.z);
+          const p = toScreen(corner);
+          if (!p) ok = false;
+          else {
+            x0 = Math.min(x0, p[0]);
+            x1 = Math.max(x1, p[0]);
+            y0 = Math.min(y0, p[1]);
+            y1 = Math.max(y1, p[1]);
+          }
+        }
+        if (ok && x1 > 0 && x0 < W && y1 > 0 && y0 < H) geomRects.push({ unitId: g.unitId, x0, x1, y0, y1 });
+      }
+    }
+    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const q = new THREE.Quaternion();
     const items = sprites
       .map((sp) => {
-        sp.getWorldPosition(v);
-        const dist = v.distanceTo(this.camera.position);
-        v.project(this.camera);
+        // Anchor = the label's resting local position (first frame captures it).
+        let base = sp.userData.basePos as THREE.Vector3 | undefined;
+        if (!base) base = sp.userData.basePos = sp.position.clone();
+        if (sp.userData.owner === undefined) {
+          let o: THREE.Object3D | null = sp;
+          while (o && !o.userData.unitId) o = o.parent;
+          sp.userData.owner = (o?.userData.unitId as string | undefined) ?? null;
+        }
+        const anchor = sp.parent!.localToWorld(base.clone());
+        const dist = anchor.distanceTo(this.camera.position);
+        const scr = toScreen(anchor);
         // Cap on-screen label height (close-up walk views otherwise get a wall of text).
-        const base = (sp.userData.baseScale as number | undefined) ?? sp.scale.y;
-        const raw = (base * f) / Math.max(dist, 1e-3);
+        const baseScale = (sp.userData.baseScale as number | undefined) ?? sp.scale.y;
+        const raw = (baseScale * f) / Math.max(dist, 1e-3);
         const maxPx = 34;
-        const sy = raw > maxPx ? base * (maxPx / raw) : base;
+        const sy = raw > maxPx ? baseScale * (maxPx / raw) : baseScale;
         sp.scale.set(sy * 4, sy, 1);
+        sp.center.set(0.5, 0.5);
         const h = Math.min(raw, maxPx);
-        return { sp, x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H, w: h * 4, h, dist, front: v.z < 1 };
+        return { sp, base, sy, owner: sp.userData.owner as string | null, x: scr?.[0] ?? 0, y: scr?.[1] ?? 0, w: h * 4, h, dist, front: !!scr };
       })
-      .filter((it) => it.front)
+      .filter((it) => {
+        if (!it.front) it.sp.position.copy(it.base);
+        return it.front;
+      })
       .sort((a, b) => a.dist - b.dist);
     const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    const hits = (r: { x0: number; x1: number; y0: number; y1: number }, p: { x0: number; x1: number; y0: number; y1: number }) =>
+      r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0;
     for (const it of items) {
-      let k = 0;
-      for (; k < 8; k++) {
+      let pick = -1;
+      let fallback = -1;
+      const avoidSteps = this.mode === 'walk' ? 0 : 6;
+      for (let k = 0; k < 8; k++) {
         const cy = it.y - k * it.h * 1.08;
         const r = { x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 };
-        if (!placed.some((p) => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) {
-          placed.push(r);
+        if (placed.some((p) => hits(r, p))) continue;
+        if (fallback < 0) fallback = k;
+        if (k > avoidSteps) break;
+        // Painted pill = uv 16…1008 × 40…216 of the 1024×256 label texture.
+        const pill = { x0: it.x - it.w * 0.47, x1: it.x + it.w * 0.47, y0: cy - it.h * 0.345, y1: cy + it.h * 0.345 };
+        if (!geomRects.some((g) => g.unitId !== it.owner && hits(pill, g))) {
+          pick = k;
           break;
         }
       }
-      it.sp.center.set(0.5, 0.5 - Math.min(k, 7) * 1.08);
+      const k = pick >= 0 ? pick : fallback >= 0 ? fallback : 7;
+      const cy = it.y - k * it.h * 1.08;
+      if (pick >= 0 || fallback >= 0) placed.push({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 });
+      // Lift along the camera's screen-up axis, expressed in the sprite parent's frame.
+      const off = camUp.clone().multiplyScalar(k * 1.08 * it.sy);
+      it.sp.parent!.getWorldQuaternion(q);
+      off.applyQuaternion(q.invert());
+      it.sp.position.copy(it.base).add(off);
     }
   }
+
 
   private bindInput(canvas: HTMLCanvasElement): void {
     this.onKeyDown = (e: KeyboardEvent) => {
@@ -1611,12 +1806,14 @@ export class PlantScene {
     for (const u of this.units) u.mesh.traverse((o) => meshes.push(o));
     const raw = this.raycaster.intersectObjects(meshes, false);
     if (!raw.length) return null;
-    // Real geometry wins over label sprites: labels are depthTest:false billboards ~22 m wide,
-    // so a nearer unit's label (e.g. Waterloo Outfall) used to steal the hover from the
-    // building actually under the cursor (Headworks). Labels still pick when nothing else does.
-    const isLabel = (o: THREE.Object3D) => (o as THREE.Sprite).isSprite === true;
-    const hits = [...raw.filter((h) => !isLabel(h.object)), ...raw.filter((h) => isLabel(h.object))];
-
+    // v0.3.13 pick order (what the user actually sees under the cursor):
+    //  1. a label pill that is really under the cursor — labels are depthTest:false billboards
+    //     drawn on top of everything, so the label's own unit wins (the quad is 22 m wide but only
+    //     the pill is painted; the transparent margin never counts, which keeps the v0.3.12 fix
+    //     where a neighbour's label margin stole hover from the building underneath);
+    //  2. real process-unit geometry, nearest first (ground aprons are only a fallback);
+    //  3. OSM context buildings, then the big WWTP footprint polygon;
+    //  4. the transparent margin of a label, when nothing else is hit.
     const resolveId = (start: THREE.Object3D | null): string | undefined => {
       let obj: THREE.Object3D | null = start;
       while (obj) {
@@ -1626,18 +1823,29 @@ export class PlantScene {
       }
       return undefined;
     };
-
-    for (const hit of hits) {
-      const id = resolveId(hit.object);
-      if (id && !id.startsWith('osm_')) {
-        return this.units.find((u) => u.id === id) ?? null;
+    const rank = (h: THREE.Intersection): number => {
+      const id = resolveId(h.object);
+      if (!id) return 99;
+      if ((h.object as THREE.Sprite).isSprite === true) {
+        const uv = h.uv;
+        const onPill = !!uv && uv.x > 16 / 1024 && uv.x < 1008 / 1024 && uv.y > 40 / 256 && uv.y < 216 / 256;
+        return onPill ? 0 : 4;
+      }
+      if (id === 'osm_wwtp') return 3;
+      if (id.startsWith('osm_')) return 2;
+      return h.object.name === 'apron' ? 1.5 : 1;
+    };
+    let best: THREE.Intersection | null = null;
+    let bestRank = 99;
+    for (const hit of raw) {
+      const r = rank(hit);
+      if (r < bestRank) {
+        best = hit;
+        bestRank = r;
       }
     }
-    for (const hit of hits) {
-      const id = resolveId(hit.object);
-      if (id) return this.units.find((u) => u.id === id) ?? null;
-    }
-    return null;
+    const bestId = best ? resolveId(best.object) : undefined;
+    return bestId ? this.units.find((u) => u.id === bestId) ?? null : null;
   }
 
   private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {

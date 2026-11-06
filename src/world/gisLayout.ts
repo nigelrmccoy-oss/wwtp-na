@@ -260,12 +260,6 @@ function aabbOfRing(fp: FootprintRing, margin = 0): { minX: number; maxX: number
   };
 }
 
-function aabbOverlap(
-  a: { minX: number; maxX: number; minZ: number; maxZ: number },
-  b: { minX: number; maxX: number; minZ: number; maxZ: number },
-): boolean {
-  return a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
-}
 
 function makeRectBasin(cx: number, cz: number, hw: number, hd: number, yaw: number): FootprintRing {
   const cos = Math.cos(yaw);
@@ -393,7 +387,7 @@ class SiteObstacles {
     };
     this.polys.forEach((p, i) => this.keyRange(p.box).forEach((k) => cell(k).polys.push(i)));
     this.roads.forEach((r, i) => {
-      const m = r.hw + 8;
+      const m = r.hw + 20;
       this.keyRange({ minX: r.box.minX - m, maxX: r.box.maxX + m, minZ: r.box.minZ - m, maxZ: r.box.maxZ + m }).forEach((k) => cell(k).roads.push(i));
     });
     return (this.grid = g);
@@ -406,7 +400,7 @@ class SiteObstacles {
     this.addRing(rectRing(cx, cz, hw, hd, yaw));
   }
   /** Rectangle (centre, half sizes, yaw) is on clear ground inside the fence. */
-  rectClear(cx: number, cz: number, hw: number, hd: number, yaw: number, margin = 6, fenceMargin = 10, roadMargin = 4): boolean {
+  rectClear(cx: number, cz: number, hw: number, hd: number, yaw: number, margin = 6, fenceMargin = 10, roadMargin = 6): boolean {
     const r = rectRing(cx, cz, hw + margin, hd + margin, yaw);
     const rb = bbox(r);
     const g = this.index();
@@ -425,9 +419,15 @@ class SiteObstacles {
     }
     for (const i of ri) {
       const rd = this.roads[i];
-      const m = rd.hw + roadMargin - margin;
-      const rr = m > 0 ? rectRing(cx, cz, hw + margin + m, hd + margin + m, yaw) : r;
-      const b = m > 0 ? bbox(rr) : rb;
+      // v0.3.13: clearance is measured from the carriageway edge, not the centreline. Public
+      // roads get the full unit margin; on-site service drives / paths / cycleways (≤2.8 m wide,
+      // which a headworks or UV building normally fronts) get roadMargin — never overlap.
+      // v0.3.13: est. boxes use 6 m (roof overhang + measurement slack keeps the drawn building
+      // ≥4 m off the carriageway edge; QA measured Galt headworks at 3.8 m with the old 4 m).
+      const minor = rd.hw <= 1.4 + 1e-6;
+      const m = rd.hw + (minor ? roadMargin : Math.max(margin, roadMargin));
+      const rr = rectRing(cx, cz, hw + m, hd + m, yaw);
+      const b = bbox(rr);
       if (rd.box.maxX < b.minX || rd.box.minX > b.maxX || rd.box.maxZ < b.minZ || rd.box.minZ > b.maxZ) continue;
       if (pointInRing(rd.a[0], rd.a[1], rr) || pointInRing(rd.b[0], rd.b[1], rr)) return false;
       for (let i = 0; i < rr.length - 1; i++) if (segsCross(rr[i], rr[i + 1], rd.a, rd.b)) return false;
@@ -442,6 +442,46 @@ class SiteObstacles {
   }
 }
 
+/**
+ * Clear spot for an hw×hd box that minimises `score` over every ring/angle sample within
+ * rMin…rMax of the anchor (placeClearBox stops at the first ring; this looks at all of them).
+ */
+function bestClearBox(
+  obs: SiteObstacles,
+  anchor: { x: number; z: number },
+  hw: number,
+  hd: number,
+  rMin: number,
+  rMax: number,
+  margin: number,
+  fenceMargin: number,
+  score: (x: number, z: number) => number,
+): { x: number; z: number } | null {
+  let best: { x: number; z: number; s: number } | null = null;
+  for (let r = rMin; r <= rMax; r += 2) {
+    const n = Math.max(24, Math.round((2 * Math.PI * r) / 2.5));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const x = anchor.x + Math.cos(a) * r;
+      const z = anchor.z + Math.sin(a) * r;
+      const sc = score(x, z);
+      if (best && sc >= best.s) continue;
+      if (obs.rectClear(x, z, hw, hd, 0, margin, fenceMargin)) best = { x, z, s: sc };
+    }
+  }
+  return best ? { x: best.x, z: best.z } : null;
+}
+
+/** Clearance ladder for estimated boxes: full 15 m first, tighter fence inset, then relax. */
+const EST_CLEAR_STEPS: [number, number][] = [
+  [15, 8],
+  [15, 3],
+  [12, 3],
+  [10, 3],
+  [8, 3],
+  [5, 3],
+];
+
 /** Ring-search clear ground for a w×d building near an anchor (nearest clear spot wins). */
 function placeClearBox(
   obs: SiteObstacles,
@@ -451,6 +491,8 @@ function placeClearBox(
   rMin: number,
   rMax: number,
   prefer: number | null = null,
+  margin = 5,
+  fenceMargin = 8,
 ): { x: number; z: number } | null {
   const base = prefer ?? 0;
   for (let r = rMin; r <= rMax; r += 4) {
@@ -460,7 +502,7 @@ function placeClearBox(
       const a = base + off;
       const x = anchor.x + Math.cos(a) * r;
       const z = anchor.z + Math.sin(a) * r;
-      if (obs.rectClear(x, z, hw, hd, 0, 5, 8)) return { x, z };
+      if (obs.rectClear(x, z, hw, hd, 0, margin, fenceMargin)) return { x, z };
     }
   }
   return null;
@@ -557,6 +599,54 @@ function kitchenerRectPrimaries(
  * Build GIS-snapped unit placements for a plant. Returns used=false when the
  * bake lacks enough on-site water footprints (caller falls back to schematic).
  */
+/**
+ * Digesters that OSM maps only as arcs of an untagged compound building outline.
+ *
+ * Kitchener WWTP (way 515109518, `building=yes`, 93 vertices live / 48 in the bake) traces the
+ * solids area as ONE polygon: four round tank walls joined by the digester/boiler building. There
+ * is no man_made=storage_tank tag anywhere on site, so the storage-tank rule above finds nothing.
+ * Least-squares circles fitted to the way's own vertices (v0.3.13 QA, scripts in the PR body):
+ *   dome E  centre (-246.06, -194.47) m, r 15.58 m (d 31.2 m, 762 m²), RMS 0.003 m over 328° of arc
+ *   dome W  centre (-275.09, -174.24) m, r 15.80 m (d 31.6 m, 784 m²), RMS 0.003 m over 305° of arc
+ * Esri World Imagery shows both as domed/membrane-roofed tanks beside the boiler building, and the
+ * Region's TM2/TM7 give 2 primary digesters, 16,490 m³ at 10.9 m SWD → 756 m² (d 31.0 m) each.
+ * (The two bigger, ribbed tanks on the west end of the same way carry rake bridges — clarifiers /
+ * thickeners — and are deliberately not used.) Coordinates are bake metres (same frame as the geo pack).
+ */
+const ARC_DIGESTERS: Record<string, { wayId: number; tanks: { cx: number; cz: number; r: number }[] }> = {
+  kitchener: {
+    wayId: 515109518,
+    tanks: [
+      { cx: -246.06, cz: -194.47, r: 15.58 },
+      { cx: -275.09, cz: -174.24, r: 15.8 },
+    ],
+  },
+};
+
+/** Ring (closed, 72 vertices on the circle) for a fitted tank. */
+function circleRing(cx: number, cz: number, r: number): number[][] {
+  const n = 72;
+  const ring: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    ring.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]);
+  }
+  ring.push(ring[0].slice());
+  return ring;
+}
+
+/** True when ≥ minVerts vertices of some mapped building lie within tol m of the fitted circle. */
+function circleSupportedByBuilding(pack: PlantGeoPack, t: { cx: number; cz: number; r: number }, minVerts = 8, tol = 0.15): boolean {
+  for (const f of pack.geojson.features as GeoFeature[]) {
+    if (f.properties.kind !== 'building' || f.geometry.type !== 'Polygon') continue;
+    const ring = f.geometry.coordinates[0] as number[][];
+    let n = 0;
+    for (const p of ring) if (Math.abs(Math.hypot(p[0] - t.cx, p[1] - t.cz) - t.r) <= tol) n++;
+    if (n >= minVerts) return true;
+  }
+  return false;
+}
+
 export function buildGisLayout(
   pack: PlantGeoPack | null,
   plantId: string,
@@ -716,6 +806,23 @@ export function buildGisLayout(
     }
   }
 
+  // No storage-tank tags (Kitchener): use the circles mapped inside the untagged compound building
+  // way, but only while the bake still holds vertices lying on each fitted circle.
+  const arcCfg = ARC_DIGESTERS[plantId];
+  if (counts.hasDigestion && fence && !digesterFs.length && arcCfg) {
+    for (const t of arcCfg.tanks) {
+      if (!circleSupportedByBuilding(pack, t)) continue;
+      const fp = classifyFootprint(circleRing(t.cx, t.cz, t.r));
+      if (!fp) continue;
+      if (!pointInRing(fp.cx, fp.cz, fence)) continue;
+      // True-scale circle: centroid is the fitted centre, area is exactly πr².
+      digesterFs.push({ ...fp, cx: t.cx, cz: t.cz, area: Math.PI * t.r * t.r, kind: 'clarifier' });
+    }
+  }
+
+  // v0.3.13: mapped digesters are obstacles too, so est. headworks/UV/solids keep their clearance from them.
+  for (const f of digesterFs) obs.addRing(f.ring);
+
   if (kitRectPrimary) {
     primaryFs = kitchenerRectPrimaries({ cx: siteCx, cz: siteCz }, aerationFs.length ? aerationFs : basins, obs);
   }
@@ -806,11 +913,12 @@ export function buildGisLayout(
   }
 
   // Unused / standby clarifiers (e.g. KIT south ~885 m² tanks) — keep visible + labelled.
-  const usedClarKeys = new Set(
-    [...primaryFs, ...secondaryFs]
-      .filter((f) => f.circularity >= 0.7)
-      .map((f) => `${f.cx.toFixed(1)},${f.cz.toFixed(1)}`),
-  );
+  // v0.3.13: key on every footprint handed to primary/secondary (not just circular ones) —
+  // Ashbridges Bay promotes low-circularity basins to clarifier slots, and skipping those
+  // re-listed the same two 2753 m² tanks as "standby", stacking duplicate meshes under the real
+  // primaries (hover then picked the wrong unit). Synthetic KIT rect primaries never share a
+  // key with a mapped clarifier, so they are harmless here.
+  const usedClarKeys = new Set([...primaryFs, ...secondaryFs].map((f) => `${f.cx.toFixed(1)},${f.cz.toFixed(1)}`));
   const unusedClar = clarifiers.filter((f) => !usedClarKeys.has(`${f.cx.toFixed(1)},${f.cz.toFixed(1)}`));
   if (unusedClar.length) {
     const c = centroidOf(unusedClar);
@@ -852,16 +960,34 @@ export function buildGisLayout(
     let headX = minX - 36;
     let headZ = midZ;
     // Headworks box is 16×12 m; keep it off mapped buildings/roads/tanks and inside the fence.
-    if (!obs.rectClear(headX, headZ, 8, 6, 0, 5, 8)) {
+    // v0.3.13: ≥15 m clear of every mapped unit/building (v0.3.12 used 5 m, which left WAT's
+    // est. headworks ~6 m from Primary #3). Relax only if no 15 m spot exists inside the fence.
+    const HEAD_CLEAR_M = 15;
+    if (!obs.rectClear(headX, headZ, 8, 6, 0, HEAD_CLEAR_M, 8)) {
       // Upstream of the primaries (away from aeration), else of the westernmost unit.
       const pri = snaps.find((s) => s.id === 'primary');
       const aerS = snaps.find((s) => s.id === 'aeration');
       const anchor = pri ? { x: pri.x, z: pri.z } : { x: minX, z: midZ };
       const away = pri && aerS ? Math.atan2(pri.z - aerS.z, pri.x - aerS.x) : Math.PI;
-      const hp = placeClearBox(obs, anchor, 8, 6, 20, 160, away);
-      if (hp) {
-        headX = hp.x;
-        headZ = hp.z;
+      // v0.3.13 QA: the nearest-ring search kept 15 m but stretched WAT's feed from 24.6 to
+      // 89 m. Score every clear spot by the gap to the nearest primary tank (feed length), with a
+      // small bias to the upstream side, and take the best at the strictest clearance available.
+      const feedTanks = pri?.footprints.length ? pri.footprints : null;
+      const feedGap = (x: number, z: number): number => {
+        const gap = feedTanks
+          ? Math.min(...feedTanks.map((f) => Math.hypot(f.cx - x, f.cz - z) - Math.sqrt(f.area / Math.PI)))
+          : Math.hypot(anchor.x - x, anchor.z - z);
+        const dev = Math.abs(Math.atan2(Math.sin(Math.atan2(z - anchor.z, x - anchor.x) - away), Math.cos(Math.atan2(z - anchor.z, x - anchor.x) - away)));
+        return gap + dev * 4;
+      };
+      // Fence inset 3 m at every step: a short feed matters more than a wider fence strip.
+      for (const [margin, fenceMargin] of EST_CLEAR_STEPS.filter(([m, f]) => f === 3 && m <= HEAD_CLEAR_M)) {
+        const hp = bestClearBox(obs, anchor, 8, 6, 12, 160, margin, fenceMargin, feedGap);
+        if (hp) {
+          headX = hp.x;
+          headZ = hp.z;
+          break;
+        }
       }
     }
     obs.addRect(headX, headZ, 8, 6);
@@ -879,11 +1005,8 @@ export function buildGisLayout(
     });
 
     const sec = snaps.find((s) => s.id === 'secondary');
-    const blockers = snaps.flatMap((s) => s.footprints);
     const aer = snaps.find((s) => s.id === 'aeration');
-    const dis = placeDisinfection(pack, bounds, blockers, sec, aer ? { x: aer.x, z: aer.z } : null, { x: maxX, z: midZ }, [
-      { x: headX, z: headZ, half: 12 },
-    ]);
+    const dis = placeDisinfection(obs, sec, aer ? { x: aer.x, z: aer.z } : null, { x: maxX, z: midZ });
     obs.addRect(dis.x, dis.z, 10, 6);
     if (counts.disinfection === 'uv' && counts.uvBanks > 0) {
       snaps.push({
@@ -919,17 +1042,37 @@ export function buildGisLayout(
     if (digesterFs.length) {
       const dc = centroidOf(digesterFs);
       const dr = Math.max(...digesterFs.map((f) => Math.hypot(f.cx - dc.x, f.cz - dc.z) + Math.sqrt(f.area / Math.PI)));
-      // Prefer the side facing the process train.
-      const toTrain = Math.atan2((minZ + maxZ) / 2 - dc.z, (minX + maxX) / 2 - dc.x);
-      const sp = placeClearBox(obs, dc, 11, 7, 10, dr + 120, toTrain);
+      // v0.3.13: the 15 m headworks clearance can take the ground beside the digesters (Waterloo), so
+      // try hard to stay within ~50 m of them (tighter fence inset / margin) before searching further out.
+      // v0.3.13: same clearance ladder as every est. box (15 m first), but stop at 8 m from the
+      // digesters while still within ~50 m of them; only then search further out / relax to 5 m.
+      let sp: { x: number; z: number } | null = null;
+      for (const [rMax, steps] of [
+        [dr + 50, EST_CLEAR_STEPS.filter(([m]) => m >= 8)],
+        [dr + 120, EST_CLEAR_STEPS],
+      ] as [number, [number, number][]][]) {
+        for (const [margin, fenceMargin] of steps) {
+          // Fine scan, nearest to the digesters wins (WAT's only ≥8 m pocket is ~4 m across).
+          sp = bestClearBox(obs, dc, 11, 7, 10, rMax, margin, fenceMargin, (x, z) =>
+            Math.min(...digesterFs.map((f) => Math.hypot(f.cx - x, f.cz - z) - Math.sqrt(f.area / Math.PI))),
+          );
+          if (sp) break;
+        }
+        if (sp) break;
+      }
       if (sp) {
         solids = sp;
         solidsNote =
           'Estimated placement, not from OSM — schematic solids building set on clear ground beside the mapped anaerobic digesters (OSM does not tag a solids/dewatering building).';
       }
-    } else if (!obs.rectClear(solids.x, solids.z, 11, 7, 0, 5, 8)) {
-      const sp = placeClearBox(obs, { x: (minX + maxX) / 2, z: maxZ }, 11, 7, 24, 160, Math.PI / 2);
-      if (sp) solids = sp;
+    } else if (!obs.rectClear(solids.x, solids.z, 11, 7, 0, 15, 8)) {
+      for (const [margin, fenceMargin] of EST_CLEAR_STEPS) {
+        const sp = placeClearBox(obs, { x: (minX + maxX) / 2, z: maxZ }, 11, 7, 24, 200, Math.PI / 2, margin, fenceMargin);
+        if (sp) {
+          solids = sp;
+          break;
+        }
+      }
     }
     obs.addRect(solids.x, solids.z, 11, 7);
     snaps.push({
@@ -1001,6 +1144,38 @@ export function buildGisLayout(
     .map((s) => ({ x: s!.x, z: s!.z }));
   if (outfallHint) chain.push({ x: outfallHint.x, z: outfallHint.z });
   const pipingHints = connectChain(chain);
+  // v0.3.13: the raw-sewage feed runs from the headworks to a primary tank (the inlet channel),
+  // not to the centroid of the whole primary group. Pick the shortest straight or L-shaped route
+  // to any primary tank that does not run through another tank, digester or estimated building.
+  const hw = snaps.find((s) => s.id === 'headworks');
+  const pr = snaps.find((s) => s.id === 'primary');
+  if (hw && pr?.footprints.length && pipingHints.length) {
+    const EST_HALF: Record<string, [number, number]> = { solids: [11, 7], disinfection: [10, 6] };
+    const estRings = snaps
+      .filter((s) => s.estimated && !s.footprints.length && EST_HALF[s.id])
+      .map((s) => rectRing(s.x, s.z, EST_HALF[s.id][0], EST_HALF[s.id][1], 0));
+    let bestRoute: number[][] | null = null;
+    let bestLen = Infinity;
+    for (const tank of pr.footprints) {
+      const others = [...snaps.flatMap((s) => s.footprints).filter((f) => f !== tank).map((f) => f.ring), ...estRings];
+      const hits = (a: number[], b: number[]) =>
+        others.some((r) => pointInRing(a[0], a[1], r) || pointInRing(b[0], b[1], r) || r.some((p, i) => i > 0 && segsCross(r[i - 1], p, a, b)));
+      const A = [hw.x, hw.z];
+      const B = [tank.cx, tank.cz];
+      for (const rt of [[A, B], [A, [B[0], A[1]], B], [A, [A[0], B[1]], B]]) {
+        if (rt.some((p, i) => i > 0 && hits(rt[i - 1], p))) continue;
+        const len = rt.reduce((acc, p, i) => (i ? acc + Math.hypot(p[0] - rt[i - 1][0], p[1] - rt[i - 1][1]) : 0), 0);
+        if (len < bestLen) {
+          bestLen = len;
+          bestRoute = rt;
+        }
+      }
+    }
+    if (bestRoute) {
+      const rt = bestRoute;
+      pipingHints.splice(0, 1, ...rt.slice(1).map((p, i) => ({ x0: rt[i][0], z0: rt[i][1], x1: p[0], z1: p[1] })));
+    }
+  }
 
   const summary = `GIS snap · ${clarifiers.length} clarifier (${unusedClar.length} standby) · ${aerationFs.length}/${basins.length} basin · asphalt ${pad.w.toFixed(0)}×${pad.d.toFixed(0)} m`;
   return {
@@ -1026,69 +1201,35 @@ function avgRadius(fs: FootprintRing[]): number {
   return rs.reduce((a, b) => a + b, 0) / rs.length;
 }
 
-/** Candidate clear spot for disinfection — never on top of a mapped clarifier/basin. */
+/**
+ * Clear ground for the estimated disinfection box (UV channel / chlorine contact, 20×12 m).
+ * v0.3.13: uses the same obstacle model as headworks/solids — mapped buildings, roads and
+ * cycleways by carriageway edge, every placed unit, and the plant fence — with the 15 m ladder.
+ * (v0.3.12 snapped it onto the nearest OSM building or checked process tanks only, which left
+ * KIT's UV outside the fence on a cycleway and Galt/Hamilton's on a service road.)
+ */
 function placeDisinfection(
-  pack: PlantGeoPack,
-  bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
-  blockers: FootprintRing[],
+  obs: SiteObstacles,
   sec: GisUnitSnap | undefined,
   upstream: { x: number; z: number } | null,
   fallback: { x: number; z: number },
-  extra: { x: number; z: number; half: number }[],
 ): { x: number; z: number; note: string } {
-  // UV channel mesh is ~16×6 m; keep 6 m clear of any process footprint.
   const HALF_W = 10;
   const HALF_D = 6;
-  const clear = (x: number, z: number, margin = 6): boolean => {
-    const box = { minX: x - HALF_W, maxX: x + HALF_W, minZ: z - HALF_D, maxZ: z + HALF_D };
-    if (blockers.some((b) => aabbOverlap(box, aabbOfRing(b, margin)))) return false;
-    if (extra.some((e) => aabbOverlap(box, { minX: e.x - e.half - margin, maxX: e.x + e.half + margin, minZ: e.z - e.half - margin, maxZ: e.z + e.half + margin }))) return false;
-    return x >= bounds.minX && x <= bounds.maxX && z >= bounds.minZ && z <= bounds.maxZ;
-  };
   const anchor = sec ? { x: sec.x, z: sec.z } : fallback;
   const secR = sec?.footprints.length
     ? Math.max(...sec.footprints.map((f) => Math.hypot(f.cx - anchor.x, f.cz - anchor.z) + Math.sqrt(f.area / Math.PI)))
     : 30;
-
-  // 1) A real OSM building inside the WWTP that is big enough and clear of process tanks.
-  let best: { x: number; z: number; d: number } | null = null;
-  for (const f of pack.geojson.features as GeoFeature[]) {
-    if (f.properties.kind !== 'building' || f.geometry.type !== 'Polygon') continue;
-    const ring = f.geometry.coordinates[0] as number[][];
-    if (ring.length < 4) continue;
-    const area = polygonArea(ring);
-    if (area < 150 || area > 4000) continue;
-    const b = bbox(ring);
-    if (b.maxX - b.minX < 2 * HALF_W * 0.8 && b.maxZ - b.minZ < 2 * HALF_W * 0.8) continue;
-    const c = centroid(ring);
-    if (!inside(bounds, c.x, c.z, 0)) continue;
-    if (!clear(c.x, c.z, 4)) continue;
-    const d = Math.hypot(c.x - anchor.x, c.z - anchor.z);
-    // Must sit close to the secondaries (disinfection follows final clarification).
-    if (d > secR + 25) continue;
-    if (!best || d < best.d) best = { x: c.x, z: c.z, d };
-  }
-  if (best) {
-    return {
-      x: best.x,
-      z: best.z,
-      note: 'Estimated placement — set on the nearest mapped OSM building clear of the clarifiers; OSM does not tag this building as the UV/disinfection facility.',
-    };
-  }
-  // 2) Collision-checked clear ground ringing the secondary clarifiers.
-  // Try angles nearest the downstream direction (away from aeration) first.
+  // Nearest clear ring first, angles nearest the downstream direction (away from aeration) first.
   const downA = upstream ? Math.atan2(anchor.z - upstream.z, anchor.x - upstream.x) : 0;
-  const angles = Array.from({ length: 24 }, (_, k) => {
-    const off = Math.ceil(k / 2) * (Math.PI / 12) * (k % 2 ? 1 : -1);
-    return downA + off;
-  });
-  for (let r = secR + 14; r < secR + 160; r += 6) {
-    for (const a of angles) {
-      const x = anchor.x + Math.cos(a) * r;
-      const z = anchor.z + Math.sin(a) * r;
-      if (clear(x, z)) {
-        return { x, z, note: 'Estimated placement, not from OSM — set on clear ground downstream of the secondary clarifiers.' };
-      }
+  for (const [margin, fenceMargin] of EST_CLEAR_STEPS) {
+    const p = placeClearBox(obs, anchor, HALF_W, HALF_D, Math.max(8, secR * 0.5), secR + 220, downA, margin, fenceMargin);
+    if (p) {
+      return {
+        x: p.x,
+        z: p.z,
+        note: `Estimated placement, not from OSM — set on clear ground inside the plant fence, ≥${margin} m from mapped units, buildings and roads, downstream of the secondary clarifiers.`,
+      };
     }
   }
   return { x: fallback.x + 40, z: fallback.z, note: 'Estimated placement, not from OSM.' };

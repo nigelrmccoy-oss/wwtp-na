@@ -7,7 +7,7 @@ import { audio } from './audio/AudioEngine';
 import { loadPlantTextures } from './world/textures';
 import { loadPlantGeo } from './world/osmBake';
 import { Autopilot } from './sim/autopilot';
-import { HoverTip } from './ui/hoverTip';
+import { HoverTip, explainerFor } from './ui/hoverTip';
 import { maybeShowFirstRunTutorial } from './ui/tutorial';
 import { LayoutOverlay } from './ui/layoutOverlay';
 import { Minimap } from './ui/minimap';
@@ -39,6 +39,7 @@ if (new URLSearchParams(location.search).has('qa')) {
   (window as unknown as { __wwtpQA?: unknown }).__wwtpQA = {
     snapshot: () => scene?.qaSnapshot() ?? null,
     scene: () => scene,
+    explain: (id: string, label?: string | null) => explainerFor(id, label ?? undefined).name,
     simState: () => (model ? { setpoints: { ...model.setpoints } } : null),
   };
 }
@@ -107,7 +108,10 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     plant,
     (unit) => {
       scada?.setSelectedUnit(unit?.label ?? null);
-      if (unit) audio.uiClick();
+      if (unit) {
+        audio.uiClick();
+        hoverTip?.pin(unit.id);
+      }
     },
     setModeBadge,
     {
@@ -115,7 +119,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
       geo,
       onHover: (unit, x, y) => {
         if (!hoverTip) return;
-        if (!unit) hoverTip.hide();
+        if (!unit) hoverTip.hide(x, y);
         else hoverTip.show(unit.id, unit.label, x, y);
       },
       onCamCycleChange: setCamCycleBadge,

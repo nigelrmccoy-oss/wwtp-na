@@ -160,7 +160,11 @@ function majorAxisYaw(ring: number[][]): number {
 
 
 
-/** Illustrative barn / fields / driveway when farm-septic has no nearby OSM. */
+/**
+ * Illustrative barn / fields / driveway when farm-septic has no nearby OSM.
+ * v0.3.13: driveway and yard lane end in the yard north of the farmhouse and the leaching-area
+ * polygon sits under the bed, so neither crosses the septic system (see SEPTIC in plantScene).
+ */
 function ensureNearSiteFarm(pack: PlantGeoPack): void {
   if (pack.plantId !== 'farm-septic') return;
   const hasNear = pack.geojson.features.some((f) => {
@@ -223,7 +227,7 @@ function ensureNearSiteFarm(pack: PlantGeoPack): void {
         name: 'Septic / leaching area (illustrative)',
         synthetic: true,
       },
-      geometry: { type: 'Polygon', coordinates: [rect(30, -8, 28, 22)] },
+      geometry: { type: 'Polygon', coordinates: [rect(19, 0, 26, 20)] },
     },
     {
       type: 'Feature',
@@ -246,7 +250,7 @@ function ensureNearSiteFarm(pack: PlantGeoPack): void {
       properties: { kind: 'road', highway: 'track', name: 'Farm driveway (illustrative)', synthetic: true },
       geometry: {
         type: 'LineString',
-        coordinates: [[-110, 55], [-70, 40], [-40, 22], [-22, 10], [8, -2]],
+        coordinates: [[-110, 55], [-70, 40], [-40, 22], [-22, 12], [-12, 9]],
       },
     },
     {
@@ -254,7 +258,7 @@ function ensureNearSiteFarm(pack: PlantGeoPack): void {
       properties: { kind: 'road', highway: 'service', name: 'Yard lane (illustrative)', synthetic: true },
       geometry: {
         type: 'LineString',
-        coordinates: [[-46, 33], [-22, 12], [-4, 0], [28, -6]],
+        coordinates: [[-46, 33], [-30, 18], [-12, 9]],
       },
     },
   ];

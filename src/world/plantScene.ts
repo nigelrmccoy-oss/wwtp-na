@@ -40,6 +40,20 @@ export interface PlantSceneOpts {
   onCamCycleChange?: (label: string) => void;
 }
 
+/**
+ * Farm Class 4 septic layout, metres in the schematic frame (centred on the flattened pad).
+ * Footprints: house 12.4×10.4 (roof), tank 7.5×3.4, d-box 2.0×2.0, bed 22×16, well apron Ø2.
+ */
+export const SEPTIC = {
+  well: { x: -31, z: -1 },
+  house: { x: -17, z: -1 },
+  tank: { x: -4, z: -1 },
+  dbox: { x: 4, z: -1 },
+  bed: { x: 19, z: 0 },
+  /** Flattened pad that holds the whole farmstead system (x −32…30, z −8…8). */
+  pad: { w: 70, d: 26 },
+} as const;
+
 export class PlantScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
@@ -457,12 +471,12 @@ export class PlantScene {
     this.gisSummary = this.gis.summary;
 
     const size = this.plant.size;
-    const schematicPadW =
-      (size === 'xlarge' || size === 'extra-large' ? 140 : size === 'large' ? 125 : 110) *
-      this.plant.layoutScale;
-    const schematicPadD =
-      (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) *
-      this.plant.layoutScale;
+    const schematicPadW = this.plant.isSeptic
+      ? SEPTIC.pad.w
+      : (size === 'xlarge' || size === 'extra-large' ? 140 : size === 'large' ? 125 : 110) * this.plant.layoutScale;
+    const schematicPadD = this.plant.isSeptic
+      ? SEPTIC.pad.d
+      : (size === 'xlarge' || size === 'extra-large' ? 100 : size === 'large' ? 90 : 80) * this.plant.layoutScale;
 
     // Asphalt = process yard only; siteBounds = full WWTP (camera / minimap / context).
     const padW = this.gis.pad?.w ?? schematicPadW;
@@ -638,6 +652,15 @@ export class PlantScene {
         // Un-rotate into group local frame (inverse of Three.js rotation.y = snap.yaw)
         const { x: px, z: pz } = worldToGroupLocal(lx, lz, snap.yaw);
         const before = group.children.length;
+        // v0.3.13: square/rectangular OSM tanks promoted into clarifier slots (Ashbridges Bay
+        // 84×33 m primaries, circ 0.63; Woodward 36×36 m, circ 0.79) were drawn as equal-area
+        // circles, which spilled ~23 m into the neighbouring tank. Draw those as their true ring.
+        if (snap.id !== 'digesters' && fp.circularity < 0.85) {
+          this.addFootprintBasin(group, fp, px, pz, 3.2, snap.id, snap.yaw);
+          const added = group.children[before];
+          if (added) added.userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'basin', ring: fp.ring };
+          continue;
+        }
         if (snap.id === 'digesters') this.addDigesterTank(group, px, pz, r, snap.id);
         else this.addWalledClarifier(group, px, pz, r, 3.2, snap.id);
         // QA: tag the shell so harnesses can compare world centroid vs OSM footprint
@@ -1110,10 +1133,17 @@ export class PlantScene {
     const units: { id: string; label: string; kind: string; x: number; z: number; count: number }[] =
       this.plant.isSeptic
         ? [
-            { id: 'house', label: 'Farmhouse', kind: 'rect', x: -28, z: 10, count: 1 },
-            { id: 'septic_tank', label: 'Septic Tank', kind: 'septic_tank', x: -12, z: 4, count: 1 },
-            { id: 'distribution', label: 'Distribution Box', kind: 'dbox', x: 8, z: 2, count: 1 },
-            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'leach', x: 48, z: 28, count: 1 },
+            // v0.3.13: true metres (NOT × layoutScale — the meshes are full size, so scaling only the
+            // positions by 0.28 dropped the 7.5 m tank 5.6 m inside the 12.4 m farmhouse). Textbook
+            // Ontario Class 4 layout (OBC 8.2.1.6 clearances), gravity flow west → east:
+            //   house ─3.0 m─ tank ─3.3 m─ distribution box ─3.0 m─ leaching bed
+            //   tank ≥1.5 m from the house (3.0 m here), bed ≥5 m from any building (18.8 m),
+            //   drilled well ≥15 m from tank (22.7 m) and bed (38.4 m; ≥30 m even for a dug well).
+            { id: 'well', label: 'Drilled Well', kind: 'well', x: SEPTIC.well.x, z: SEPTIC.well.z, count: 1 },
+            { id: 'house', label: 'Farmhouse', kind: 'rect', x: SEPTIC.house.x, z: SEPTIC.house.z, count: 1 },
+            { id: 'septic_tank', label: 'Septic Tank', kind: 'septic_tank', x: SEPTIC.tank.x, z: SEPTIC.tank.z, count: 1 },
+            { id: 'distribution', label: 'Distribution Box', kind: 'dbox', x: SEPTIC.dbox.x, z: SEPTIC.dbox.z, count: 1 },
+            { id: 'leaching_bed', label: 'Leaching Bed', kind: 'leach', x: SEPTIC.bed.x, z: SEPTIC.bed.z, count: 1 },
           ]
         : [
             { id: 'headworks', label: 'Headworks', kind: 'rect', x: -38, z: -8, count: 1 },
@@ -1172,14 +1202,18 @@ export class PlantScene {
       });
     }
 
+    // Every group drawn for a unit (the large-plant mirror train is a second group).
+    const unitGroups = new Map<string, THREE.Object3D[]>();
     for (const u of units) {
       if (u.count <= 0 && u.kind !== 'rect') continue;
       const group = new THREE.Group();
+      unitGroups.set(u.id, [group]);
       const zOff =
         !this.plant.isSeptic && trainOffsetZ && u.id !== 'solids' && u.id !== 'digesters'
           ? -trainOffsetZ * 0.15
           : 0;
-      group.position.set(u.x * s, 0, (u.z + zOff) * s);
+      const ps = this.plant.isSeptic ? 1 : s;
+      group.position.set(u.x * ps, 0, (u.z + zOff) * ps);
       group.userData.unitId = u.id;
 
       if (u.kind === 'cyl') {
@@ -1225,6 +1259,22 @@ export class PlantScene {
         riser.position.set(0, 1.85, 0);
         riser.userData.unitId = u.id;
         group.add(riser);
+      } else if (u.kind === 'well') {
+        // Drilled well: steel casing ~0.4 m above grade on a sloped concrete apron, with a cap.
+        const apron = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.0, 0.18, 20), this.mats.concrete);
+        apron.position.y = 0.09;
+        apron.receiveShadow = true;
+        apron.userData.unitId = u.id;
+        group.add(apron);
+        const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.6, 14), this.mats.metal);
+        casing.position.y = 0.45;
+        casing.castShadow = true;
+        casing.userData.unitId = u.id;
+        group.add(casing);
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.12, 14), this.mats.painted);
+        cap.position.y = 0.8;
+        cap.userData.unitId = u.id;
+        group.add(cap);
       } else if (u.kind === 'dbox') {
         const box = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), this.mats.concrete);
         box.position.y = 0.35;
@@ -1310,6 +1360,7 @@ export class PlantScene {
         u.kind !== 'ditch'
       ) {
         const mirror = group.clone(true);
+        unitGroups.get(u.id)!.push(mirror);
         mirror.position.z += trainOffsetZ * s;
         mirror.traverse((o) => {
           if (o.userData) o.userData.unitId = u.id;
@@ -1319,7 +1370,7 @@ export class PlantScene {
 
       const label = this.makeLabel(u.label);
       const labelY =
-        u.kind === 'ditch' ? 9.5 : u.kind === 'leach' ? 4.5 : u.kind === 'septic_tank' || u.kind === 'dbox' ? 3.8 : 8.2;
+        u.kind === 'ditch' ? 9.5 : u.kind === 'leach' ? 4.5 : u.kind === 'septic_tank' || u.kind === 'dbox' || u.kind === 'well' ? 3.8 : this.plant.isSeptic ? 7.2 : 8.2;
       label.position.set(0, labelY, 0);
       group.add(label);
 
@@ -1329,24 +1380,78 @@ export class PlantScene {
 
     if (!this.plant.isSeptic) {
       this.addOutfall(58 * s, 8 * s, 0);
-      this.addPiping([
-        { x0: -38 * s, z0: -8 * s, x1: -18 * s, z1: -12 * s },
-        { x0: -18 * s, z0: -12 * s, x1: 8 * s, z1: -10 * s },
-        { x0: 8 * s, z0: -10 * s, x1: 32 * s, z1: -12 * s },
-        { x0: 32 * s, z0: -12 * s, x1: 48 * s, z1: 4 * s },
-        { x0: 48 * s, z0: 4 * s, x1: 58 * s, z1: 8 * s },
-      ]);
+      const outfall = this.units.find((u) => u.id === 'outfall');
+      if (outfall) unitGroups.set('outfall', [outfall.mesh]);
+      // v0.3.13: positions scale with layoutScale but the meshes do not, so at small plants
+      // (St. Jacobs, s = 0.5) UV / tertiary / outfall landed on top of each other and hover read
+      // the neighbour. Push each unit clear of the ones already placed, then pipe what is drawn.
+      this.separateSchematicUnits(unitGroups, 4);
+      const order = ['headworks', 'primary', 'aeration', 'secondary', 'tertiary', 'disinfection', 'outfall'];
+      const pts = order
+        .filter((id) => unitGroups.has(id))
+        .map((id) => unitGroups.get(id)![0].position)
+        .map((p) => ({ x: p.x, z: p.z }));
+      this.addPiping(pts.slice(1).map((p, i) => ({ x0: pts[i].x, z0: pts[i].z, x1: p.x, z1: p.z })));
     }
 
     this.orbitDist = 42 + 28 * s;
     if (this.plant.isSeptic) {
-      this.orbitTarget.set(12 * s, 0, 12 * s);
-      this.walkPos.set(-8 * s, this.sampleEyeY(-8 * s, 22 * s), 22 * s);
-      this.orbitDist = 50 + 20 * s;
+      // Gravity sewer / effluent lines, edge to edge: house → tank → distribution box → bed header.
+      const t = SEPTIC;
+      this.addPiping([
+        { x0: t.house.x + 6.2, z0: t.house.z, x1: t.tank.x - 3.75, z1: t.tank.z },
+        { x0: t.tank.x + 3.75, z0: t.tank.z, x1: t.dbox.x - 1.0, z1: t.dbox.z },
+        { x0: t.dbox.x + 1.0, z0: t.dbox.z, x1: t.bed.x - 11, z1: t.dbox.z },
+      ]);
+      this.orbitTarget.set(-1, 0, 0);
+      this.walkPos.set(2, this.sampleEyeY(2, 16), 16);
+      this.orbitDist = 64;
       this.pitch = -0.72;
     } else {
       this.orbitTarget.set(8 * s, 0, -4 * s);
       this.walkPos.set(28 * s, this.sampleEyeY(28 * s, 38 * s), 38 * s);
+    }
+  }
+
+  /**
+   * Schematic layouts: push units (in build order) until each one's mesh footprint is at least
+   * `gap` m clear of every earlier unit. Moves along the axis of least overlap, away from the
+   * unit it hit. Labels / aprons are ignored (labels declutter in screen space).
+   */
+  private separateSchematicUnits(unitGroups: Map<string, THREE.Object3D[]>, gap: number): void {
+    const footprint = (groups: THREE.Object3D[]): THREE.Box3 => {
+      const b = new THREE.Box3();
+      for (const g of groups) {
+        g.updateWorldMatrix(true, true);
+        g.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o.name !== 'apron') b.expandByObject(o);
+        });
+      }
+      return b;
+    };
+    const ids = [...unitGroups.keys()];
+    const placed: THREE.Box3[] = [];
+    for (const id of ids) {
+      const groups = unitGroups.get(id)!;
+      for (let iter = 0; iter < 60; iter++) {
+        const b = footprint(groups);
+        if (b.isEmpty()) break;
+        const hit = placed.find(
+          (p) =>
+            b.min.x < p.max.x + gap && b.max.x > p.min.x - gap && b.min.z < p.max.z + gap && b.max.z > p.min.z - gap,
+        );
+        if (!hit) break;
+        const bc = b.getCenter(new THREE.Vector3());
+        const hc = hit.getCenter(new THREE.Vector3());
+        const sx = bc.x >= hc.x ? 1 : -1;
+        const sz = bc.z >= hc.z ? 1 : -1;
+        const dx = sx > 0 ? hit.max.x + gap - b.min.x : b.max.x - (hit.min.x - gap);
+        const dz = sz > 0 ? hit.max.z + gap - b.min.z : b.max.z - (hit.min.z - gap);
+        const move = dx <= dz ? new THREE.Vector3(sx * (dx + 0.01), 0, 0) : new THREE.Vector3(0, 0, sz * (dz + 0.01));
+        for (const g of groups) g.position.add(move);
+      }
+      const fb = footprint(groups);
+      if (!fb.isEmpty()) placed.push(fb);
     }
   }
 

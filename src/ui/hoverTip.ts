@@ -66,6 +66,11 @@ export const UNIT_EXPLAINERS: Record<string, UnitExplainer> = {
     blurb: 'Treated effluent discharge to the receiver. Watch ECA limits and disinfection status upstream.',
     scadaControls: ['spDisinfect'],
   },
+  well: {
+    name: 'Drilled well',
+    blurb: 'Private drinking-water well (watertight casing). OBC 8.2.1.6 keeps the septic tank and leaching bed at least 15 m away (30 m for a shallow dug well) — this one is 23 m from the tank and 38 m from the bed, upslope of the system.',
+    scadaControls: [],
+  },
   house: {
     name: 'Farmhouse',
     blurb: 'Source of domestic sewage to the Class 4 septic tank (Ontario Building Code Part 8).',

@@ -400,7 +400,7 @@ class SiteObstacles {
     this.addRing(rectRing(cx, cz, hw, hd, yaw));
   }
   /** Rectangle (centre, half sizes, yaw) is on clear ground inside the fence. */
-  rectClear(cx: number, cz: number, hw: number, hd: number, yaw: number, margin = 6, fenceMargin = 10, roadMargin = 4): boolean {
+  rectClear(cx: number, cz: number, hw: number, hd: number, yaw: number, margin = 6, fenceMargin = 10, roadMargin = 6): boolean {
     const r = rectRing(cx, cz, hw + margin, hd + margin, yaw);
     const rb = bbox(r);
     const g = this.index();
@@ -421,7 +421,9 @@ class SiteObstacles {
       const rd = this.roads[i];
       // v0.3.13: clearance is measured from the carriageway edge, not the centreline. Public
       // roads get the full unit margin; on-site service drives / paths / cycleways (≤2.8 m wide,
-      // which a headworks or UV building normally fronts) get roadMargin (4 m) — never overlap.
+      // which a headworks or UV building normally fronts) get roadMargin — never overlap.
+      // v0.3.13: est. boxes use 6 m (roof overhang + measurement slack keeps the drawn building
+      // ≥4 m off the carriageway edge; QA measured Galt headworks at 3.8 m with the old 4 m).
       const minor = rd.hw <= 1.4 + 1e-6;
       const m = rd.hw + (minor ? roadMargin : Math.max(margin, roadMargin));
       const rr = rectRing(cx, cz, hw + m, hd + m, yaw);

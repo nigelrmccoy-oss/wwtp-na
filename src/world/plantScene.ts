@@ -1581,9 +1581,40 @@ export class PlantScene {
     this.pitch = -0.06;
   }
 
+  /** World AABBs of each process unit's meshes (touching boxes merged), for label placement. */
+  private labelGeomBoxes: { unitId: string; boxes: THREE.Box3[] }[] | null = null;
+
+  private buildLabelGeomBoxes(): { unitId: string; boxes: THREE.Box3[] }[] {
+    const out: { unitId: string; boxes: THREE.Box3[] }[] = [];
+    for (const u of this.units) {
+      if (u.id.startsWith('osm_')) continue;
+      u.mesh.updateWorldMatrix(true, true);
+      const boxes: THREE.Box3[] = [];
+      u.mesh.traverse((o) => {
+        if (!(o as THREE.Mesh).isMesh || o.name === 'apron' || o.userData.pipeChevron) return;
+        const g = (o as THREE.Mesh).geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        const b = g.boundingBox!.clone().applyMatrix4(o.matrixWorld);
+        if (b.isEmpty()) return;
+        const hit = boxes.find((x) => x.clone().expandByScalar(0.5).intersectsBox(b));
+        if (hit) hit.union(b);
+        else boxes.push(b);
+      });
+      out.push({ unitId: u.id, boxes });
+    }
+    return out;
+  }
+
   /**
    * Screen-space label declutter: nearer labels keep their anchor, overlapping ones are
-   * stacked upward (via Sprite.center, i.e. whole label heights) so text never overlaps.
+   * stacked upward in whole label heights so text never overlaps.
+   *
+   * v0.3.13: (1) labels are lifted by moving the sprite itself along the camera's up vector
+   * (not Sprite.center), so the sprite's world position is where the pill is drawn and picked;
+   * (2) a label also steps up until its pill clears every OTHER unit's mesh on screen, when
+   * that is possible within 6 steps (orbit views only) — a pill drawn over a neighbour's body would otherwise win
+   * the pick (labels draw on top) and hover would name the label's unit, not the body
+   * (St. Jacobs bird: Secondary's pill over the UV channel, UV's pill over the outfall).
    */
   private declutterLabels(): void {
     const sprites = this.labelSprites.filter((sp) => sp.visible && sp.parent);
@@ -1593,36 +1624,95 @@ export class PlantScene {
     const W = canvas.clientWidth || window.innerWidth;
     const f = H / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
     const v = new THREE.Vector3();
+    this.camera.updateMatrixWorld();
+    const toScreen = (p: THREE.Vector3): [number, number] | null => {
+      v.copy(p).project(this.camera);
+      if (v.z > 1 || v.z < -1) return null;
+      return [(v.x * 0.5 + 0.5) * W, (-v.y * 0.5 + 0.5) * H];
+    };
+    // Other units' meshes as screen rects.
+    this.labelGeomBoxes ??= this.buildLabelGeomBoxes();
+    const geomRects: { unitId: string; x0: number; x1: number; y0: number; y1: number }[] = [];
+    const corner = new THREE.Vector3();
+    for (const g of this.labelGeomBoxes) {
+      for (const b of g.boxes) {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        let ok = true;
+        for (let c = 0; c < 8 && ok; c++) {
+          corner.set(c & 1 ? b.max.x : b.min.x, c & 2 ? b.max.y : b.min.y, c & 4 ? b.max.z : b.min.z);
+          const p = toScreen(corner);
+          if (!p) ok = false;
+          else {
+            x0 = Math.min(x0, p[0]);
+            x1 = Math.max(x1, p[0]);
+            y0 = Math.min(y0, p[1]);
+            y1 = Math.max(y1, p[1]);
+          }
+        }
+        if (ok && x1 > 0 && x0 < W && y1 > 0 && y0 < H) geomRects.push({ unitId: g.unitId, x0, x1, y0, y1 });
+      }
+    }
+    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const q = new THREE.Quaternion();
     const items = sprites
       .map((sp) => {
-        sp.getWorldPosition(v);
-        const dist = v.distanceTo(this.camera.position);
-        v.project(this.camera);
+        // Anchor = the label's resting local position (first frame captures it).
+        let base = sp.userData.basePos as THREE.Vector3 | undefined;
+        if (!base) base = sp.userData.basePos = sp.position.clone();
+        if (sp.userData.owner === undefined) {
+          let o: THREE.Object3D | null = sp;
+          while (o && !o.userData.unitId) o = o.parent;
+          sp.userData.owner = (o?.userData.unitId as string | undefined) ?? null;
+        }
+        const anchor = sp.parent!.localToWorld(base.clone());
+        const dist = anchor.distanceTo(this.camera.position);
+        const scr = toScreen(anchor);
         // Cap on-screen label height (close-up walk views otherwise get a wall of text).
-        const base = (sp.userData.baseScale as number | undefined) ?? sp.scale.y;
-        const raw = (base * f) / Math.max(dist, 1e-3);
+        const baseScale = (sp.userData.baseScale as number | undefined) ?? sp.scale.y;
+        const raw = (baseScale * f) / Math.max(dist, 1e-3);
         const maxPx = 34;
-        const sy = raw > maxPx ? base * (maxPx / raw) : base;
+        const sy = raw > maxPx ? baseScale * (maxPx / raw) : baseScale;
         sp.scale.set(sy * 4, sy, 1);
+        sp.center.set(0.5, 0.5);
         const h = Math.min(raw, maxPx);
-        return { sp, x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H, w: h * 4, h, dist, front: v.z < 1 };
+        return { sp, base, sy, owner: sp.userData.owner as string | null, x: scr?.[0] ?? 0, y: scr?.[1] ?? 0, w: h * 4, h, dist, front: !!scr };
       })
-      .filter((it) => it.front)
+      .filter((it) => {
+        if (!it.front) it.sp.position.copy(it.base);
+        return it.front;
+      })
       .sort((a, b) => a.dist - b.dist);
     const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+    const hits = (r: { x0: number; x1: number; y0: number; y1: number }, p: { x0: number; x1: number; y0: number; y1: number }) =>
+      r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0;
     for (const it of items) {
-      let k = 0;
-      for (; k < 8; k++) {
+      let pick = -1;
+      let fallback = -1;
+      const avoidSteps = this.mode === 'walk' ? 0 : 6;
+      for (let k = 0; k < 8; k++) {
         const cy = it.y - k * it.h * 1.08;
         const r = { x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 };
-        if (!placed.some((p) => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0)) {
-          placed.push(r);
+        if (placed.some((p) => hits(r, p))) continue;
+        if (fallback < 0) fallback = k;
+        if (k > avoidSteps) break;
+        // Painted pill = uv 16…1008 × 40…216 of the 1024×256 label texture.
+        const pill = { x0: it.x - it.w * 0.47, x1: it.x + it.w * 0.47, y0: cy - it.h * 0.345, y1: cy + it.h * 0.345 };
+        if (!geomRects.some((g) => g.unitId !== it.owner && hits(pill, g))) {
+          pick = k;
           break;
         }
       }
-      it.sp.center.set(0.5, 0.5 - Math.min(k, 7) * 1.08);
+      const k = pick >= 0 ? pick : fallback >= 0 ? fallback : 7;
+      const cy = it.y - k * it.h * 1.08;
+      if (pick >= 0 || fallback >= 0) placed.push({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 });
+      // Lift along the camera's screen-up axis, expressed in the sprite parent's frame.
+      const off = camUp.clone().multiplyScalar(k * 1.08 * it.sy);
+      it.sp.parent!.getWorldQuaternion(q);
+      off.applyQuaternion(q.invert());
+      it.sp.position.copy(it.base).add(off);
     }
   }
+
 
   private bindInput(canvas: HTMLCanvasElement): void {
     this.onKeyDown = (e: KeyboardEvent) => {

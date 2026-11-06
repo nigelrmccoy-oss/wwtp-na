@@ -127,6 +127,13 @@ export class HoverTip {
   private lastClientX = 0;
   private lastClientY = 0;
   private estimateNotes: Record<string, string> = {};
+  /**
+   * v0.3.13: the tip is pointer-transparent while it follows the cursor (it used to swallow
+   * pointermoves when the cursor slid down-right into it, freezing a stale title — QA saw KIT's
+   * UV read "Primary clarifiers" and WAT/Galt's read nothing). Clicking a unit pins the tip
+   * in place and makes it interactive so "Open controls" can be reached.
+   */
+  private pinned = false;
 
   constructor(host: HTMLElement, onFocusScada: FocusScadaFn, plant?: PlantRuntime) {
     this.onFocusScada = onFocusScada;
@@ -169,7 +176,35 @@ export class HoverTip {
     }
   }
 
-  hide(): void {
+  /** Pin the visible tip (unit was clicked): stays put and takes the pointer until left. */
+  pin(unitId: string): void {
+    if (this.el.classList.contains('hidden') || this.currentUnitId !== unitId) return;
+    this.pinned = true;
+    this.el.classList.add('pinned');
+    this.renderBody(unitId, this.currentLabel);
+  }
+
+  private unpin(): void {
+    if (!this.pinned) return;
+    this.pinned = false;
+    this.el.classList.remove('pinned');
+  }
+
+  /** While pinned, ignore canvas hover updates near the tip so the cursor can reach it. */
+  private holdPinned(clientX?: number, clientY?: number): boolean {
+    if (!this.pinned) return false;
+    if (clientX !== undefined && clientY !== undefined) {
+      const r = this.el.getBoundingClientRect();
+      const m = 40;
+      if (clientX >= r.left - m && clientX <= r.right + m && clientY >= r.top - m && clientY <= r.bottom + m) return true;
+    }
+    this.unpin();
+    return false;
+  }
+
+  hide(clientX?: number, clientY?: number): void {
+    if (this.holdPinned(clientX, clientY)) return;
+    this.unpin();
     this.el.classList.add('hidden');
     this.el.innerHTML = '';
     this.currentUnitId = null;
@@ -177,6 +212,7 @@ export class HoverTip {
   }
 
   show(unitId: string, label: string, clientX: number, clientY: number): void {
+    if (this.holdPinned(clientX, clientY)) return;
     this.lastClientX = clientX;
     this.lastClientY = clientY;
     const switched = unitId !== this.currentUnitId;
@@ -219,6 +255,7 @@ export class HoverTip {
       <div class="hover-blurb">${escapeHtml(ex.blurb)}</div>
       ${this.estimateNotes[unitId] ? `<div class="hover-est">⚠ ${escapeHtml(this.estimateNotes[unitId])}</div>` : ''}
       ${liveHtml}
+      ${btn && !this.pinned ? '<div class="hover-pin-hint">Click the unit to pin this tip</div>' : ''}
       ${btn}
     `;
   }

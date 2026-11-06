@@ -108,7 +108,10 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     plant,
     (unit) => {
       scada?.setSelectedUnit(unit?.label ?? null);
-      if (unit) audio.uiClick();
+      if (unit) {
+        audio.uiClick();
+        hoverTip?.pin(unit.id);
+      }
     },
     setModeBadge,
     {
@@ -116,7 +119,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
       geo,
       onHover: (unit, x, y) => {
         if (!hoverTip) return;
-        if (!unit) hoverTip.hide();
+        if (!unit) hoverTip.hide(x, y);
         else hoverTip.show(unit.id, unit.label, x, y);
       },
       onCamCycleChange: setCamCycleBadge,

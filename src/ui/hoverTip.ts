@@ -171,8 +171,8 @@ export class HoverTip {
   setState(state: SimState): void {
     this.lastState = state;
     if (this.currentUnitId && !this.el.classList.contains('hidden')) {
-      this.renderBody(this.currentUnitId, this.currentLabel);
-      this.position(this.lastClientX, this.lastClientY);
+      this.renderLive(this.currentUnitId);
+      if (!this.pinned) this.position(this.lastClientX, this.lastClientY);
     }
   }
 
@@ -223,7 +223,7 @@ export class HoverTip {
       this.currentIds = ex.scadaControls;
       this.renderBody(unitId, label);
     } else if (this.lastState) {
-      this.renderBody(unitId, label);
+      this.renderLive(unitId);
     }
     this.el.classList.remove('hidden');
     this.position(clientX, clientY);
@@ -247,9 +247,7 @@ export class HoverTip {
       ex.scadaControls.length > 0
         ? `<button type="button" class="hover-open" id="hoverOpenCtrl">Open controls</button>`
         : '';
-    const liveHtml = live
-      ? `<div class="hover-live">${live.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
-      : '';
+    const liveHtml = `<div class="hover-live">${this.liveHtml(live)}</div>`;
     this.el.innerHTML = `
       <div class="hover-title">${escapeHtml(ex.name)}</div>
       <div class="hover-blurb">${escapeHtml(ex.blurb)}</div>
@@ -258,6 +256,25 @@ export class HoverTip {
       ${btn && !this.pinned ? '<div class="hover-pin-hint">Click the unit to pin this tip</div>' : ''}
       ${btn}
     `;
+  }
+
+  private liveHtml(live: string[]): string {
+    return live.map((l) => `<div>${escapeHtml(l)}</div>`).join('');
+  }
+
+  /**
+   * v0.3.14: live sim ticks only rewrite the readings. Re-rendering the whole tip replaced the
+   * "Open controls" button under the cursor between mousedown and mouseup, so the click landed on
+   * the tip itself and was dropped (headless QA hit it on St. Jacobs).
+   */
+  private renderLive(unitId: string): void {
+    const box = this.el.querySelector('.hover-live');
+    if (!box) {
+      this.renderBody(unitId, this.currentLabel);
+      return;
+    }
+    const html = this.liveHtml(this.liveLines(unitId));
+    if (box.innerHTML !== html) box.innerHTML = html;
   }
 
   private liveLines(unitId: string): string[] {

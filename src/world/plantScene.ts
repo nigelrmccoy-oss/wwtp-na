@@ -84,7 +84,6 @@ export class PlantScene {
   private onCamCycleChange: ((label: string) => void) | null = null;
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
-  private selected: UnitInfo | null = null;
   private selectionRing: THREE.Mesh;
   private onSelect: UnitSelectCb;
   private onHover: UnitHoverCb | null;
@@ -1582,16 +1581,20 @@ export class PlantScene {
   }
 
   /** World AABBs of each process unit's meshes (touching boxes merged), for label placement. */
-  private labelGeomBoxes: { unitId: string; boxes: THREE.Box3[] }[] | null = null;
+  private labelGeomBoxes: { unitId: string; boxes: THREE.Box3[]; meshes: THREE.Object3D[] }[] | null = null;
+  private labelRay = new THREE.Raycaster();
+  private labelSig = '';
 
-  private buildLabelGeomBoxes(): { unitId: string; boxes: THREE.Box3[] }[] {
-    const out: { unitId: string; boxes: THREE.Box3[] }[] = [];
+  private buildLabelGeomBoxes(): { unitId: string; boxes: THREE.Box3[]; meshes: THREE.Object3D[] }[] {
+    const out: { unitId: string; boxes: THREE.Box3[]; meshes: THREE.Object3D[] }[] = [];
     for (const u of this.units) {
       if (u.id.startsWith('osm_')) continue;
       u.mesh.updateWorldMatrix(true, true);
       const boxes: THREE.Box3[] = [];
+      const meshes: THREE.Object3D[] = [];
       u.mesh.traverse((o) => {
         if (!(o as THREE.Mesh).isMesh || o.name === 'apron' || o.userData.pipeChevron) return;
+        meshes.push(o);
         const g = (o as THREE.Mesh).geometry;
         if (!g.boundingBox) g.computeBoundingBox();
         const b = g.boundingBox!.clone().applyMatrix4(o.matrixWorld);
@@ -1600,7 +1603,7 @@ export class PlantScene {
         if (hit) hit.union(b);
         else boxes.push(b);
       });
-      out.push({ unitId: u.id, boxes });
+      out.push({ unitId: u.id, boxes, meshes });
     }
     return out;
   }
@@ -1611,10 +1614,16 @@ export class PlantScene {
    *
    * v0.3.13: (1) labels are lifted by moving the sprite itself along the camera's up vector
    * (not Sprite.center), so the sprite's world position is where the pill is drawn and picked;
-   * (2) a label also steps up until its pill clears every OTHER unit's mesh on screen, when
-   * that is possible within 6 steps (orbit views only) — a pill drawn over a neighbour's body would otherwise win
-   * the pick (labels draw on top) and hover would name the label's unit, not the body
-   * (St. Jacobs bird: Secondary's pill over the UV channel, UV's pill over the outfall).
+   * (2) a label also moves until its pill clears every OTHER unit's mesh on screen (orbit views
+   * only) — a pill drawn over a neighbour's body would otherwise win the pick (labels draw on top)
+   * and hover would name the label's unit, not the body (St. Jacobs bird: Secondary's pill over
+   * the UV channel, UV's pill over the outfall).
+   *
+   * v0.3.14: candidates are no longer "up only, ≤6 steps": the nearest clear slot within ±1 label
+   * width sideways and 4 down … 6 up is used, each tested by rays at its projected position
+   * (Hamilton bird: every upward slot for Outfall's 6 px pill sat on the aeration basins, so it
+   * fell back to its anchor over the basin wall; 3 steps down is clear). If no slot is clear the
+   * label stays at the nearest slot free of other labels and is flagged userData.labelClear=false.
    */
   private declutterLabels(): void {
     const sprites = this.labelSprites.filter((sp) => sp.visible && sp.parent);
@@ -1622,6 +1631,12 @@ export class PlantScene {
     const canvas = this.renderer.domElement;
     const H = canvas.clientHeight || window.innerHeight;
     const W = canvas.clientWidth || window.innerWidth;
+    // Placement depends only on camera, viewport, mode and the visible label set; skip unchanged frames
+    // (the exact ray checks below are not free on big plants).
+    this.camera.updateMatrixWorld();
+    const sig = `${W}x${H}|${this.mode}|${sprites.map((sp) => sp.id).join(',')}|${this.camera.fov}|${this.camera.matrixWorld.elements.map((e) => e.toFixed(4)).join(',')}`;
+    if (sig === this.labelSig) return;
+    this.labelSig = sig;
     const f = H / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
     const v = new THREE.Vector3();
     this.camera.updateMatrixWorld();
@@ -1632,7 +1647,7 @@ export class PlantScene {
     };
     // Other units' meshes as screen rects.
     this.labelGeomBoxes ??= this.buildLabelGeomBoxes();
-    const geomRects: { unitId: string; x0: number; x1: number; y0: number; y1: number }[] = [];
+    const geomRects: { unitId: string; x0: number; x1: number; y0: number; y1: number; meshes: THREE.Object3D[] }[] = [];
     const corner = new THREE.Vector3();
     for (const g of this.labelGeomBoxes) {
       for (const b of g.boxes) {
@@ -1649,10 +1664,11 @@ export class PlantScene {
             y1 = Math.max(y1, p[1]);
           }
         }
-        if (ok && x1 > 0 && x0 < W && y1 > 0 && y0 < H) geomRects.push({ unitId: g.unitId, x0, x1, y0, y1 });
+        if (ok && x1 > 0 && x0 < W && y1 > 0 && y0 < H) geomRects.push({ unitId: g.unitId, x0, x1, y0, y1, meshes: g.meshes });
       }
     }
     const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
     const q = new THREE.Quaternion();
     const items = sprites
       .map((sp) => {
@@ -1675,7 +1691,7 @@ export class PlantScene {
         sp.scale.set(sy * 4, sy, 1);
         sp.center.set(0.5, 0.5);
         const h = Math.min(raw, maxPx);
-        return { sp, base, sy, owner: sp.userData.owner as string | null, x: scr?.[0] ?? 0, y: scr?.[1] ?? 0, w: h * 4, h, dist, front: !!scr };
+        return { sp, base, anchor, sy, owner: sp.userData.owner as string | null, x: scr?.[0] ?? 0, y: scr?.[1] ?? 0, w: h * 4, h, dist, front: !!scr };
       })
       .filter((it) => {
         if (!it.front) it.sp.position.copy(it.base);
@@ -1683,30 +1699,93 @@ export class PlantScene {
       })
       .sort((a, b) => a.dist - b.dist);
     const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
-    const hits = (r: { x0: number; x1: number; y0: number; y1: number }, p: { x0: number; x1: number; y0: number; y1: number }) =>
-      r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0;
+    type R = { x0: number; x1: number; y0: number; y1: number };
+    const hits = (r: R, p: R) => r.x0 < p.x1 && r.x1 > p.x0 && r.y0 < p.y1 && r.y1 > p.y0;
+    const ndc = new THREE.Vector2();
+    const labelOwnerMeshes = new Map<string, THREE.Object3D[]>();
+    for (const g of this.labelGeomBoxes) labelOwnerMeshes.set(g.unitId, g.meshes);
+    // v0.3.14: does the painted pill really cover ANOTHER unit's body? The merged world AABBs are only a
+    // broad phase (a rotated or L-shaped basin's box covers lots of open ground), so every candidate they
+    // flag is checked with rays through the pill (5×3 samples) against just the overlapping units' meshes
+    // plus the label's own — first surface hit decides, the same nearest-geometry rule pickUnit uses.
+    const coversOther = (pill: R, owner: string | null): boolean => {
+      const cand = geomRects.filter((g) => g.unitId !== owner && hits(pill, g));
+      if (!cand.length) return false;
+      const objs: THREE.Object3D[] = [];
+      const seen = new Set<string>();
+      for (const g of cand) if (!seen.has(g.unitId)) { seen.add(g.unitId); objs.push(...g.meshes); }
+      if (owner) objs.push(...(labelOwnerMeshes.get(owner) ?? []));
+      for (const fx of [0.04, 0.27, 0.5, 0.73, 0.96]) {
+        for (const fy of [0.08, 0.5, 0.92]) {
+          const x = pill.x0 + (pill.x1 - pill.x0) * fx;
+          const y = pill.y0 + (pill.y1 - pill.y0) * fy;
+          ndc.set((x / W) * 2 - 1, -(y / H) * 2 + 1);
+          this.labelRay.setFromCamera(ndc, this.camera);
+          const h = this.labelRay.intersectObjects(objs, false)[0];
+          if (!h) continue;
+          let o: THREE.Object3D | null = h.object;
+          while (o && !o.userData.unitId) o = o.parent;
+          if (o && o.userData.unitId !== owner) return true;
+        }
+      }
+      return false;
+    };
+    // Candidate offsets (j = half label widths sideways, k = label heights up; negative = down), nearest
+    // first with a slight preference for "up" (the historic stack direction). Walk view keeps the plain
+    // upward label-vs-label stack: at eye level labels sit above bodies and must not wander sideways.
+    const orbitCands: [number, number][] = [];
+    for (let k = -4; k <= 6; k++) for (let j = -2; j <= 2; j++) orbitCands.push([j, k]);
+    const walkCands: [number, number][] = [];
+    for (let k = 0; k < 8; k++) walkCands.push([0, k]);
     for (const it of items) {
-      let pick = -1;
-      let fallback = -1;
-      const avoidSteps = this.mode === 'walk' ? 0 : 6;
-      for (let k = 0; k < 8; k++) {
-        const cy = it.y - k * it.h * 1.08;
-        const r = { x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 };
+      const cands = (this.mode === 'walk' ? walkCands : orbitCands)
+        .map(([j, k]) => ({ j, k, d: Math.hypot(j * it.w * 0.5, k * it.h * 1.08 * (k < 0 ? 1.25 : 1)) }))
+        .sort((a, b) => a.d - b.d);
+      let pick: { j: number; k: number } | null = null;
+      let fallback: { j: number; k: number } | null = null;
+      // Each candidate is tested where it will really be drawn: the world offset along the camera's
+      // screen axes, projected (a fixed px step drifts from the world step under perspective — QA saw
+      // Waterloo's Headworks pill land 21 px off its tested slot, onto the digesters).
+      const wpos = new THREE.Vector3();
+      const at = (c: { j: number; k: number }) => {
+        wpos.copy(it.anchor).addScaledVector(camUp, c.k * 1.08 * it.sy).addScaledVector(camRight, c.j * 2 * it.sy);
+        const sc = toScreen(wpos);
+        if (!sc) return null;
+        const h = (it.sy * f) / Math.max(wpos.distanceTo(this.camera.position), 1e-3);
+        return { cx: sc[0], cy: sc[1], w: h * 4, h };
+      };
+      let chosen: { cx: number; cy: number; w: number; h: number } | null = null;
+      let fbAt: { cx: number; cy: number; w: number; h: number } | null = null;
+      for (const c of cands) {
+        const g = at(c);
+        if (!g) continue;
+        const { cx, cy, w, h } = g;
+        if (cx - w / 2 < 0 || cx + w / 2 > W || cy - h / 2 < 0 || cy + h / 2 > H) continue;
+        const r = { x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 };
         if (placed.some((p) => hits(r, p))) continue;
-        if (fallback < 0) fallback = k;
-        if (k > avoidSteps) break;
+        if (!fallback) {
+          fallback = c;
+          fbAt = g;
+        }
+        if (this.mode === 'walk') {
+          pick = c;
+          chosen = g;
+          break;
+        }
         // Painted pill = uv 16…1008 × 40…216 of the 1024×256 label texture.
-        const pill = { x0: it.x - it.w * 0.47, x1: it.x + it.w * 0.47, y0: cy - it.h * 0.345, y1: cy + it.h * 0.345 };
-        if (!geomRects.some((g) => g.unitId !== it.owner && hits(pill, g))) {
-          pick = k;
+        const pill = { x0: cx - w * 0.47, x1: cx + w * 0.47, y0: cy - h * 0.345, y1: cy + h * 0.345 };
+        if (!coversOther(pill, it.owner)) {
+          pick = c;
+          chosen = g;
           break;
         }
       }
-      const k = pick >= 0 ? pick : fallback >= 0 ? fallback : 7;
-      const cy = it.y - k * it.h * 1.08;
-      if (pick >= 0 || fallback >= 0) placed.push({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, y0: cy - it.h / 2, y1: cy + it.h / 2 });
-      // Lift along the camera's screen-up axis, expressed in the sprite parent's frame.
-      const off = camUp.clone().multiplyScalar(k * 1.08 * it.sy);
+      const c = pick ?? fallback ?? { j: 0, k: 0 };
+      const g = chosen ?? fbAt ?? { cx: it.x, cy: it.y, w: it.w, h: it.h };
+      placed.push({ x0: g.cx - g.w / 2, x1: g.cx + g.w / 2, y0: g.cy - g.h / 2, y1: g.cy + g.h / 2 });
+      it.sp.userData.labelClear = pick !== null;
+      // Offset along the camera's screen axes, expressed in the sprite parent's frame.
+      const off = camUp.clone().multiplyScalar(c.k * 1.08 * it.sy).addScaledVector(camRight, c.j * 2 * it.sy);
       it.sp.parent!.getWorldQuaternion(q);
       off.applyQuaternion(q.invert());
       it.sp.position.copy(it.base).add(off);
@@ -1850,41 +1929,13 @@ export class PlantScene {
 
   private updateHover(clientX: number, clientY: number, canvas: HTMLCanvasElement): void {
     if (!this.onHover) return;
-    let unit = this.pickUnit(clientX, clientY, canvas);
-    // Soft pick: if exact ray misses, tip still shows for nearby process units (more prevalent)
-    if (!unit) unit = this.nearestUnitScreen(clientX, clientY, canvas, 56);
-    this.onHover(unit, clientX, clientY);
-  }
-
-  private nearestUnitScreen(
-    clientX: number,
-    clientY: number,
-    canvas: HTMLCanvasElement,
-    maxPx: number,
-  ): UnitInfo | null {
-    const rect = canvas.getBoundingClientRect();
-    let best: UnitInfo | null = null;
-    let bestD = maxPx;
-    const v = new THREE.Vector3();
-    for (const u of this.units) {
-      if (u.id.startsWith('osm_') && u.id !== 'osm_wwtp') continue;
-      const box = new THREE.Box3().setFromObject(u.mesh);
-      box.getCenter(v);
-      v.project(this.camera);
-      if (v.z > 1) continue;
-      const x = (v.x * 0.5 + 0.5) * rect.width + rect.left;
-      const y = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
-      const d = Math.hypot(x - clientX, y - clientY);
-      if (d < bestD) {
-        bestD = d;
-        best = u;
-      }
-    }
-    return best;
+    // v0.3.14: hover names exactly what a click would select. The old "soft pick" (nearest unit centre
+    // within 56 px) titled empty ground between Kitchener's separate est. primary tanks "Primary
+    // clarifiers" while the ray — and a click — found nothing; a gap now clears the tip.
+    this.onHover(this.pickUnit(clientX, clientY, canvas), clientX, clientY);
   }
 
   private setSelected(unit: UnitInfo | null): void {
-    this.selected = unit;
     if (unit) {
       const box = new THREE.Box3().setFromObject(unit.mesh);
       const c = box.getCenter(new THREE.Vector3());
@@ -1951,13 +2002,9 @@ export class PlantScene {
       }
     }
 
-    for (const u of this.units) {
-      const spr = u.mesh.children.find((c) => c instanceof THREE.Sprite) as THREE.Sprite | undefined;
-      if (spr) {
-        const sel = this.selected?.id === u.id;
-        spr.scale.set(sel ? 26 : 22, sel ? 6.5 : 5.5, 1);
-      }
-    }
+    // (v0.3.14: the per-frame label rescale that lived here was always overwritten by
+    // declutterLabels(), which owns label scale and position; with placement cached across
+    // unchanged frames it would have left labels drawn at the wrong size.)
   }
 }
 

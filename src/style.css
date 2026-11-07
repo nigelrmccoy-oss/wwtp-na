@@ -419,6 +419,7 @@ button:hover{filter:brightness(1.08)}
   font:800 9px/1 ui-monospace,Menlo,Consolas,monospace;
   letter-spacing:.12em;color:#9fd6ff;opacity:.85;pointer-events:none;
 }
+.hover-live:empty{display:none}
 .hover-live{
   margin-top:.4rem;padding:.35rem .4rem;border-radius:4px;
   background:rgba(20,40,36,.85);border:1px solid #2a6a55;

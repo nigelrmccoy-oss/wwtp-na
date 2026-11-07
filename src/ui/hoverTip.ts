@@ -41,6 +41,11 @@ export const UNIT_EXPLAINERS: Record<string, UnitExplainer> = {
     blurb: 'Final pathogen kill — UV lamps or chlorine/NaOCl contact before the outfall. Required for ECA compliance.',
     scadaControls: ['spDisinfect'],
   },
+  'clarifiers-standby': {
+    name: 'Clarifiers (standby)',
+    blurb: 'Mapped clarifier tanks that are not part of the active primary / secondary train in this sim — kept visible at their real OSM footprints.',
+    scadaControls: [],
+  },
   solids: {
     name: 'Solids handling',
     blurb: 'Thickening, digestion, dewatering — where Waste Activated Sludge (WAS) becomes biosolids.',
@@ -60,6 +65,11 @@ export const UNIT_EXPLAINERS: Record<string, UnitExplainer> = {
     name: 'Outfall',
     blurb: 'Treated effluent discharge to the receiver. Watch ECA limits and disinfection status upstream.',
     scadaControls: ['spDisinfect'],
+  },
+  well: {
+    name: 'Drilled well',
+    blurb: 'Private drinking-water well (watertight casing). OBC 8.2.1.6 keeps the septic tank and leaching bed at least 15 m away (30 m for a shallow dug well) — this one is 23 m from the tank and 38 m from the bed, upslope of the system.',
+    scadaControls: [],
   },
   house: {
     name: 'Farmhouse',
@@ -117,6 +127,13 @@ export class HoverTip {
   private lastClientX = 0;
   private lastClientY = 0;
   private estimateNotes: Record<string, string> = {};
+  /**
+   * v0.3.13: the tip is pointer-transparent while it follows the cursor (it used to swallow
+   * pointermoves when the cursor slid down-right into it, freezing a stale title — QA saw KIT's
+   * UV read "Primary clarifiers" and WAT/Galt's read nothing). Clicking a unit pins the tip
+   * in place and makes it interactive so "Open controls" can be reached.
+   */
+  private pinned = false;
 
   constructor(host: HTMLElement, onFocusScada: FocusScadaFn, plant?: PlantRuntime) {
     this.onFocusScada = onFocusScada;
@@ -159,7 +176,35 @@ export class HoverTip {
     }
   }
 
-  hide(): void {
+  /** Pin the visible tip (unit was clicked): stays put and takes the pointer until left. */
+  pin(unitId: string): void {
+    if (this.el.classList.contains('hidden') || this.currentUnitId !== unitId) return;
+    this.pinned = true;
+    this.el.classList.add('pinned');
+    this.renderBody(unitId, this.currentLabel);
+  }
+
+  private unpin(): void {
+    if (!this.pinned) return;
+    this.pinned = false;
+    this.el.classList.remove('pinned');
+  }
+
+  /** While pinned, ignore canvas hover updates near the tip so the cursor can reach it. */
+  private holdPinned(clientX?: number, clientY?: number): boolean {
+    if (!this.pinned) return false;
+    if (clientX !== undefined && clientY !== undefined) {
+      const r = this.el.getBoundingClientRect();
+      const m = 40;
+      if (clientX >= r.left - m && clientX <= r.right + m && clientY >= r.top - m && clientY <= r.bottom + m) return true;
+    }
+    this.unpin();
+    return false;
+  }
+
+  hide(clientX?: number, clientY?: number): void {
+    if (this.holdPinned(clientX, clientY)) return;
+    this.unpin();
     this.el.classList.add('hidden');
     this.el.innerHTML = '';
     this.currentUnitId = null;
@@ -167,6 +212,7 @@ export class HoverTip {
   }
 
   show(unitId: string, label: string, clientX: number, clientY: number): void {
+    if (this.holdPinned(clientX, clientY)) return;
     this.lastClientX = clientX;
     this.lastClientY = clientY;
     const switched = unitId !== this.currentUnitId;
@@ -209,6 +255,7 @@ export class HoverTip {
       <div class="hover-blurb">${escapeHtml(ex.blurb)}</div>
       ${this.estimateNotes[unitId] ? `<div class="hover-est">⚠ ${escapeHtml(this.estimateNotes[unitId])}</div>` : ''}
       ${liveHtml}
+      ${btn && !this.pinned ? '<div class="hover-pin-hint">Click the unit to pin this tip</div>' : ''}
       ${btn}
     `;
   }

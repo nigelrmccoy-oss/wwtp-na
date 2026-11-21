@@ -12,6 +12,8 @@ import { maybeShowFirstRunTutorial } from './ui/tutorial';
 import { LayoutOverlay } from './ui/layoutOverlay';
 import { Minimap } from './ui/minimap';
 import { getCesiumScaffoldStatus, mountCesiumScaffold } from './world/cesiumLayer';
+import { loadRuntimeDem } from './world/runtimeDem';
+import { cacheCounters, cacheStats, clearMapCache, resetCacheCounters } from './world/tileCache';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const menuHost = document.getElementById('menu')!;
@@ -41,6 +43,22 @@ if (new URLSearchParams(location.search).has('qa')) {
     scene: () => scene,
     explain: (id: string, label?: string | null) => explainerFor(id, label ?? undefined).name,
     simState: () => (model ? { setpoints: { ...model.setpoints } } : null),
+    scenery: () =>
+      scene
+        ? {
+            ortho: {
+              mode: scene.orthoMode,
+              zoom: scene.orthoZoom,
+              attribution: scene.orthoAttribution,
+              active: scene.orthoActive,
+            },
+            dem: { source: scene.demSource, info: scene.runtimeDemInfo },
+          }
+        : null,
+    cacheStats,
+    cacheCounters: () => ({ ...cacheCounters }),
+    clearCache: () => clearMapCache(),
+    resetCacheCounters,
   };
 }
 
@@ -102,6 +120,11 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   };
 
   const [textures, geo] = await Promise.all([texturesReady, loadPlantGeo(plant.id)]);
+  const runtimeDem = await loadRuntimeDem(geo, plant.id);
+  if (geo && runtimeDem) {
+    geo.dem = runtimeDem.dem;
+    geo.attribution = { ...geo.attribution, dem: runtimeDem.attribution };
+  }
 
   scene = new PlantScene(
     canvas,
@@ -125,6 +148,10 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
       onCamCycleChange: setCamCycleBadge,
     },
   );
+  if (runtimeDem) {
+    scene.runtimeDemInfo = runtimeDem.info;
+    scene.demSource = runtimeDem.source;
+  }
   setModeBadge('orbit');
   setCamCycleBadge(scene.getCamCycleLabel());
   hoverTip?.setEstimateNotes(scene.estimateNotes);
@@ -153,11 +180,25 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
     document.getElementById('app')!.appendChild(demHud);
   }
   const demSrc = scene.demSource || '';
-  const procedural = /procedural|noise/i.test(demSrc);
-  demHud.textContent = procedural ? 'DEM: procedural' : 'DEM: Open-Meteo';
-  demHud.dataset.source = procedural ? 'procedural' : 'open-meteo';
+  let demKind = 'other';
+  let demLabel = `DEM: ${demSrc || 'unknown'}`;
+  if (/HRDEM/i.test(demSrc)) {
+    demKind = 'hrdem';
+    demLabel = 'DEM: NRCan HRDEM';
+  } else if (/Terrarium/i.test(demSrc)) {
+    demKind = 'terrarium';
+    demLabel = 'DEM: Terrarium';
+  } else if (/Open-Meteo/i.test(demSrc)) {
+    demKind = 'open-meteo';
+    demLabel = 'DEM: Open-Meteo';
+  } else if (/procedural|noise/i.test(demSrc)) {
+    demKind = 'procedural';
+    demLabel = 'DEM: procedural';
+  }
+  demHud.textContent = demLabel;
+  demHud.dataset.source = demKind;
   demHud.classList.remove('hidden');
-  demHud.title = demSrc || demHud.textContent;
+  demHud.title = demSrc || demLabel;
 
   // Autopilot HUD badge — meaning: ON = keep NORMAL / meet ECA
   let apHud = document.getElementById('apHudBadge');

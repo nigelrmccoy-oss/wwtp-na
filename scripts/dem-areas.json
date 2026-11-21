@@ -1,0 +1,76 @@
+{
+  "_note": "Per-plant HRDEM bake boxes (~\u00b12.2 km) for wwtp-na v0.3.15. bbox = [south, west, north, east].",
+  "zoom": 16,
+  "areas": [
+    {
+      "id": "farm-septic",
+      "bbox": [
+        43.53224,
+        -80.60227,
+        43.57176,
+        -80.54773
+      ],
+      "source": "hrdem"
+    },
+    {
+      "id": "st-jacobs",
+      "bbox": [
+        43.51584,
+        -80.57576,
+        43.55536,
+        -80.52124
+      ],
+      "source": "hrdem"
+    },
+    {
+      "id": "waterloo",
+      "bbox": [
+        43.46774,
+        -80.53474,
+        43.50726,
+        -80.48026
+      ],
+      "source": "hrdem"
+    },
+    {
+      "id": "kitchener",
+      "bbox": [
+        43.37844,
+        -80.4481,
+        43.41796,
+        -80.3937
+      ],
+      "source": "hrdem"
+    },
+    {
+      "id": "galt",
+      "bbox": [
+        43.40324,
+        -80.35651,
+        43.44276,
+        -80.30209
+      ],
+      "source": "hrdem"
+    },
+    {
+      "id": "hamilton-woodward",
+      "bbox": [
+        43.23344,
+        -79.79873,
+        43.27296,
+        -79.74447
+      ],
+      "source": "hrdem"
+    },
+    {
+      "id": "toronto-ashbridges-bay",
+      "bbox": [
+        43.63734,
+        -79.34652,
+        43.67686,
+        -79.29188
+      ],
+      "source": "hrdem"
+    }
+  ]
+}

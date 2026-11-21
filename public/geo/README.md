@@ -13,3 +13,7 @@ Do **not** scrape Street View or Apple Maps. Satellite imagery is not bundled.
 
 Bake caps raised (buildings ≤320, roads ≤400). Rebake: `node scripts/bakeGeo.mjs [plantId]`.
 DEM prefers Open-Meteo; falls back to procedural noise when rate-limited.
+
+## v0.3.15 runtime elevation
+
+These JSON bakes still supply OSM footprints and a coarse fallback DEM. At runtime the ground mesh is sampled from AWS Terrarium tiles (z14) and, where present, baked NRCan HRDEM tiles in `public/dem/` (gitignored). DEM tiles are cached in IndexedDB; satellite imagery is not bundled and is not stored in that cache.

@@ -2,6 +2,7 @@ import plantsData from '../data/plants.json';
 import { menuPlants, formatFlow, type PlantRuntime, type PlantsFile } from '../data/plantTypes';
 import { audio } from '../audio/AudioEngine';
 import { openTutorial } from './tutorial';
+import { cacheStats, clearMapCache, formatCacheBytes, storagePersisted } from '../world/tileCache';
 
 export interface MenuSelection {
   plant: PlantRuntime;
@@ -37,6 +38,12 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
       <div id="plantBlurb" class="plant-blurb"></div>
       <button id="startBtn" type="button">Enter plant</button>
       <button id="tutorialBtn" type="button" class="btn-secondary">Tutorial — acronyms</button>
+      <div class="cache-panel" id="cachePanel">
+        <strong>Map cache</strong>
+        <p class="cache-stats" id="cacheStats">Measuring cache…</p>
+        <button id="clearCacheBtn" type="button" class="btn-secondary">Clear cache</button>
+        <p class="muted cache-note">Stores DEM / HRDEM (and live OSM if fetched). Imagery uses the browser HTTP cache only — Bing, Cesium ion and Esri tiles are not kept here.</p>
+      </div>
       <div class="help">
         <strong>Controls</strong>
         <ul>
@@ -55,6 +62,21 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
   const blurb = root.querySelector('#plantBlurb') as HTMLElement;
   const btn = root.querySelector('#startBtn') as HTMLButtonElement;
   const tutBtn = root.querySelector('#tutorialBtn') as HTMLButtonElement;
+  const cacheStatsEl = root.querySelector('#cacheStats') as HTMLElement;
+  const clearBtn = root.querySelector('#clearCacheBtn') as HTMLButtonElement;
+
+  async function refreshCacheStats(): Promise<void> {
+    try {
+      const s = await cacheStats();
+      const persist =
+        storagePersisted === true ? 'persistent' : storagePersisted === false ? 'may evict' : 'persist pending';
+      const note = s.notice ? ` · ${s.notice}` : '';
+      cacheStatsEl.textContent = `${s.count} entries · ${formatCacheBytes(s.bytes)} · ${persist}${note}`;
+    } catch {
+      cacheStatsEl.textContent = 'Cache unavailable';
+    }
+  }
+  void refreshCacheStats();
 
   function refreshBlurb(): void {
     const p = plants.find((x) => x.id === sel.value)!;
@@ -83,8 +105,22 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
     openTutorial();
   });
 
+  clearBtn.addEventListener('click', () => {
+    audio.uiClick();
+    clearBtn.disabled = true;
+    cacheStatsEl.textContent = 'Clearing…';
+    void clearMapCache()
+      .then(() => refreshCacheStats())
+      .finally(() => {
+        clearBtn.disabled = false;
+      });
+  });
+
   return {
-    show: () => root.classList.remove('hidden'),
+    show: () => {
+      root.classList.remove('hidden');
+      void refreshCacheStats();
+    },
     hide: () => root.classList.add('hidden'),
   };
 }

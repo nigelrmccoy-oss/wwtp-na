@@ -18,6 +18,12 @@ npm run build
 npm run preview
 ```
 
+## v0.3.15 scenery + persistent DEM cache
+
+- **Bing Aerial via Cesium ion** (asset 2, no labels, zoom 17) when `VITE_CESIUM_ION_TOKEN` is set in gitignored `.env.local`. Falls back to Esri World Imagery. Attribution badges stay on screen. Imagery uses the browser HTTP cache only — tiles are not written to IndexedDB.
+- **Runtime DEM** at all 7 plants: AWS Terrarium (z14) plus optional baked NRCan HRDEM 1 m tiles (`public/dem/`, gitignored; `python3 scripts/bake-dem.py`). Replaces the coarse 13×13 / procedural bake for terrain. Pad flattening and `groundY` are unchanged.
+- **Persistent map cache** (IndexedDB, `navigator.storage.persist()`, 30-day soft refresh, 16 GB LRU cap). Stores DEM / HRDEM (and live OSM if fetched later). Clear button is on the start menu. Never commit tokens or `public/dem/`.
+
 Optional Cesium scaffold (never commit tokens):
 
 ```bash
@@ -49,7 +55,7 @@ See `docs/research-plants.md` and each plant’s `sources` in JSON.
 - **KIT real basins** — no `splitBasinAlongMajor` to force aeration count=4; hand rectangular primaries collision-checked vs aeration; unused south clarifiers meshed/labelled as standby.
 - **Pad-relative OSM** — WWTP slab hole + building/road skip use asphalt process yard (not origin ±62/±55 schematic).
 - **Terrain** — ground plane enlarged ~1500–2000 m to cover site.
-- **Ortho tiles-lite** — attributed Esri World Imagery underlay (optional `VITE_IMAGERY_URL`); Cesium Ion remains scaffold when token present. Never Google/Apple/Street View.
+- **Ortho** — Bing Aerial via Cesium ion when a token is present (z17, no labels); otherwise attributed Esri World Imagery (optional `VITE_IMAGERY_URL`). Cesium globe remains scaffold. Never Google/Apple/Street View.
 - **Denser bake caps** — buildings/roads raised for GTA-like context.
 
 ## What’s in v0.3.9

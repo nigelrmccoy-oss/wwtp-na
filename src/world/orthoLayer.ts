@@ -87,6 +87,9 @@ interface BingMeta {
 }
 
 let bingMetaP: Promise<BingMeta | null> | null = null;
+/** After a failed ion/Bing metadata fetch, skip retries until this time. */
+let bingMetaBackoffUntil = 0;
+const BING_META_BACKOFF_MS = 5_000;
 
 function ionToken(): string {
   return String(import.meta.env.VITE_CESIUM_ION_TOKEN || '').trim();
@@ -95,12 +98,10 @@ function ionToken(): string {
 /** Resolve Bing Aerial (no labels) through Cesium ion. Memory only — never persisted. */
 function resolveBingMeta(): Promise<BingMeta | null> {
   if (bingMetaP) return bingMetaP;
+  if (performance.now() < bingMetaBackoffUntil) return Promise.resolve(null);
   const token = ionToken();
-  if (token.length <= 8) {
-    bingMetaP = Promise.resolve(null);
-    return bingMetaP;
-  }
-  bingMetaP = (async () => {
+  if (token.length <= 8) return Promise.resolve(null);
+  const pending = (async () => {
     try {
       const ep = await (
         await fetch(`https://api.cesium.com/v1/assets/${ION_ASSET}/endpoint?access_token=${encodeURIComponent(token)}`)
@@ -125,7 +126,14 @@ function resolveBingMeta(): Promise<BingMeta | null> {
       return null;
     }
   })();
-  return bingMetaP;
+  bingMetaP = pending;
+  void pending.then((meta) => {
+    if (meta) return;
+    // Do not permanently cache a failed lookup; retry on a later mount after a short backoff.
+    if (bingMetaP === pending) bingMetaP = null;
+    bingMetaBackoffUntil = performance.now() + BING_META_BACKOFF_MS;
+  });
+  return pending;
 }
 
 function bingTileUrl(meta: BingMeta, x: number, y: number, z: number): string {

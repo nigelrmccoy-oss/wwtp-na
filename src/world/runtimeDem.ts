@@ -96,9 +96,30 @@ export async function loadRuntimeDem(pack: PlantGeoPack | null, plantId: string)
     };
   }
 
-  const absOrigin = sampler.sampleAbsolute(origin.lat, origin.lon);
-  const baseElevationM = absOrigin ?? baked?.baseElevationM ?? 0;
-  sampler.setOriginElevation(baseElevationM);
+  const finite = (n: number | null | undefined): number | null =>
+    n != null && Number.isFinite(n) ? n : null;
+
+  const absOrigin = finite(sampler.sampleAbsolute(origin.lat, origin.lon));
+  const bakedBase = finite(baked?.baseElevationM);
+  let baseElevationM = absOrigin ?? bakedBase;
+  // Never use 0 as a stand-in datum: absolute metres would be treated as
+  // relative and the ground could sit hundreds of metres off. Prefer a real
+  // nearby sample; if none, leave the origin unset so cells take the baked /
+  // procedural path (already relative).
+  if (baseElevationM == null) {
+    scan: for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = -half + (2 * half * i) / (n - 1);
+        const z = -half + (2 * half * j) / (n - 1);
+        const probed = finite(sampler.sampleAbsolute(origin.lat - z / mLat, origin.lon + x / mLon));
+        if (probed != null) {
+          baseElevationM = probed;
+          break scan;
+        }
+      }
+    }
+  }
+  if (baseElevationM != null) sampler.setOriginElevation(baseElevationM);
 
   const samples: { x: number; z: number; h: number }[] = [];
   let filled = 0;
@@ -152,7 +173,7 @@ export async function loadRuntimeDem(pack: PlantGeoPack | null, plantId: string)
   const dem: DemData = {
     n,
     halfExtentM: half,
-    baseElevationM,
+    baseElevationM: baseElevationM ?? 0,
     samples,
     source,
   };
@@ -167,7 +188,7 @@ export async function loadRuntimeDem(pack: PlantGeoPack | null, plantId: string)
     info: {
       n,
       halfExtentM: half,
-      baseElevationM,
+      baseElevationM: baseElevationM ?? 0,
       filled,
       missing,
       hrHits: infoHits.hrSamples,

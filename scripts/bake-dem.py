@@ -12,7 +12,7 @@ Output: <out>/<z>/<x>/<y>.png  (Terrarium encoding: (R*256+G+B/256)-32768 m; B q
         pixels with no LiDAR DTM are written as the sentinel R=G=B=0 (the game falls back to Terrarium there)
 The output folder is gitignored; keep it under ~2 GB. Re-running skips tiles that already exist.
 """
-import argparse, json, math, os, sys, time
+import argparse, json, math, os, signal, sys, time
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
@@ -72,11 +72,21 @@ def encode(h):
     return rgb
 
 
+class TileTimeout(Exception):
+    pass
+
+
 def bake_tile(args):
-    href, z, x, y, out = args
+    href, z, x, y, out, timeout = args
     path = os.path.join(out, str(z), str(x), f'{y}.png')
     if os.path.exists(path):
         return (x, y, 'skip')
+
+    def on_alarm(signum, frame):
+        raise TileTimeout(f'timed out after {timeout:.0f}s')
+
+    prev = signal.signal(signal.SIGALRM, on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
     try:
         ds = _open(href)
         left, bottom, right, top = tile_bounds_3857(z, x, y)
@@ -94,8 +104,24 @@ def bake_tile(args):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         Image.fromarray(encode(dst), 'RGB').save(path, optimize=True, compress_level=9)
         return (x, y, 'ok' if valid.all() else 'partial')
-    except Exception as ex:  # network hiccup: leave the tile unwritten so a re-run retries it
+    except Exception as ex:  # network hiccup or timeout: leave unwritten so a re-run retries it
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+        if isinstance(ex, TileTimeout):
+            # A mid-read interrupt can leave the cached dataset unusable in this worker.
+            ds = _ds.pop(href, None)
+            if ds is not None:
+                try:
+                    ds.close()
+                except Exception:
+                    pass
         return (x, y, 'err:' + str(ex)[:80])
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prev)
 
 
 def main():
@@ -106,6 +132,7 @@ def main():
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--config', default=os.path.join(os.path.dirname(__file__), 'dem-areas.json'))
     ap.add_argument('--max-mb', type=float, default=1800)
+    ap.add_argument('--tile-timeout', type=float, default=60, help='seconds allowed per tile before it is skipped (SIGALRM)')
     a = ap.parse_args()
     cfg = json.load(open(a.config))
     z = a.zoom or cfg['zoom']
@@ -121,7 +148,7 @@ def main():
         x0, y1 = lonlat_to_tile(w, s, z); x1, y0 = lonlat_to_tile(e, n, z)
         for ty in range(int(y0), int(y1) + 1):
             for tx in range(int(x0), int(x1) + 1):
-                tiles.append((href, z, tx, ty, a.out))
+                tiles.append((href, z, tx, ty, a.out, a.tile_timeout))
         print(f"{area['id']}: {len(tiles)} tiles so far")
     stats = {}
     got = {}
@@ -129,6 +156,8 @@ def main():
     with ProcessPoolExecutor(a.jobs) as ex:
         for i, (x, y, st) in enumerate(ex.map(bake_tile, tiles, chunksize=4)):
             stats[st.split(':')[0]] = stats.get(st.split(':')[0], 0) + 1
+            if st.startswith('err:'):
+                print(f'tile {z}/{x}/{y} skipped: {st[4:]}', flush=True)
             if st in ('ok', 'partial', 'skip'):
                 got.setdefault(y, []).append(x)
             if (i + 1) % 100 == 0:

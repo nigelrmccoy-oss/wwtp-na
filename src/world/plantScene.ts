@@ -22,7 +22,7 @@ import {
 } from './terrain';
 import { buildOsmSurroundings, type PlantGeoPack } from './osmBake';
 import { buildGisLayout, type FootprintRing, type GisLayoutResult, type GisUnitSnap } from './gisLayout';
-import { mountOrthoUnderlay } from './orthoLayer';
+import { mountOrthoUnderlay, type OrthoMode } from './orthoLayer';
 
 export interface UnitInfo {
   id: string;
@@ -102,8 +102,20 @@ export class PlantScene {
   private dem: DemData | null = null;
   private orthoDispose: (() => void) | null = null;
   orthoAttribution = '';
-  /** True once Esri/custom imagery tiles are draped (yard asphalt hidden). */
+  orthoMode: OrthoMode = 'off';
+  orthoZoom: number | null = null;
+  /** True once imagery tiles are draped (yard asphalt hidden). */
   orthoActive = false;
+  runtimeDemInfo: {
+    n: number;
+    halfExtentM: number;
+    baseElevationM: number;
+    filled: number;
+    missing: number;
+    hrHits: number;
+    baseHits: number;
+    usedFallbackBake: boolean;
+  } | null = null;
   private padGrade = 0;
   private terrainOpts: TerrainOpts = { padW: 110, padD: 80 };
   private readonly eyeHeight = 1.7;
@@ -198,6 +210,10 @@ export class PlantScene {
     this.disposed = true;
     this.orthoDispose?.();
     this.orthoDispose = null;
+    this.orthoMode = 'off';
+    this.orthoZoom = null;
+    this.orthoActive = false;
+    this.orthoAttribution = '';
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onResize);
     if (this.onKeyDown) window.removeEventListener('keydown', this.onKeyDown);
@@ -559,6 +575,8 @@ export class PlantScene {
         this.root.add(ortho.group);
         this.orthoDispose = ortho.dispose;
         this.orthoAttribution = ortho.attribution;
+        this.orthoMode = ortho.mode;
+        this.orthoZoom = ortho.zoom;
         if (ortho.group.children.length > 0) {
           const padMesh = terrain.group.getObjectByName('site-pad');
           if (padMesh) padMesh.visible = false;

@@ -9,3 +9,6 @@ dist-ssr
 .env
 .env.*
 .env.local
+
+# v0.3.15 baked NRCan HRDEM tiles (scripts/bake-dem.py)
+public/dem/

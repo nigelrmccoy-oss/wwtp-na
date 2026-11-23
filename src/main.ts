@@ -154,7 +154,7 @@ const menu = mountMenu(menuHost, async ({ plant }) => {
   }
   setModeBadge('orbit');
   setCamCycleBadge(scene.getCamCycleLabel());
-  hoverTip?.setEstimateNotes(scene.estimateNotes);
+  hoverTip?.setEstimateNotes(scene.estimateNotes, scene.sourceNotes);
 
   minimap?.destroy();
   minimap = new Minimap(document.getElementById('app')!, scene);

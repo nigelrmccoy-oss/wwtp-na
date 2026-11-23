@@ -2,6 +2,7 @@ import type { ProcessModel, SimState, Setpoints } from '../sim/processModel';
 import { formatFlow } from '../data/plantTypes';
 import { audio } from '../audio/AudioEngine';
 import type { Autopilot } from '../sim/autopilot';
+import { tagsForPlant, tagState, fmtLimit, processTrain, MECP_DESIGN_GUIDELINES, type TagDef } from '../sim/scadaTags';
 
 export type SimSpeed = 1 | 4 | 12;
 
@@ -18,6 +19,8 @@ export class ScadaOverlay {
   private onAckAlarms: (() => void) | null;
   private lastAlarmIds: string[] = [];
   private lastAlarmKey = '\u0000';
+  private tagDefs: TagDef[] = [];
+  private tagCells: { t: TagDef; pv: HTMLElement | null; st: HTMLElement | null; sp: HTMLElement | null }[] = [];
 
   constructor(
     host: HTMLElement,
@@ -33,6 +36,7 @@ export class ScadaOverlay {
   ) {
     this.model = model;
     this.septic = model.plant.isSeptic;
+    this.tagDefs = tagsForPlant(model.plant);
     this.simSpeed = opts?.simSpeed ?? 4;
     this.onSimSpeedChange = opts?.onSimSpeedChange ?? (() => {});
     this.autopilot = opts?.autopilot ?? null;
@@ -169,6 +173,7 @@ export class ScadaOverlay {
     }
 
     this.lastAlarmIds = state.alarms.map((a) => a.id);
+    this.updateTagList(state);
 
     const alarmBox = this.el.querySelector('#alarmList') as HTMLElement;
     if (alarmBox) {
@@ -203,6 +208,51 @@ export class ScadaOverlay {
     this.syncReadout('pumpPct', `${this.model.setpoints.pumpSpeedPct.toFixed(0)}%`);
 
     if (this.autopilot?.enabled) this.syncControlInputs();
+  }
+
+  /** v0.3.16: collapsible ISA-5.1 tag table — PV, range, alarm limits, setpoint, basis. */
+  private tagListHtml(): string {
+    const p = this.model.plant;
+    const train = processTrain(p);
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+    const rows = this.tagDefs
+      .map((t) => {
+        const lim = [t.ll, t.l, t.h, t.hh].map((v) => fmtLimit(v, t.digits)).join(' / ');
+        const tip = esc(`${t.desc} · range ${t.range[0]}–${t.range[1]} ${t.eu} · basis ${t.basis}${t.note ? ` — ${t.note}` : ''}`);
+        // Compact row (panel is ~400 px): description, range, basis and note live in the row tooltip;
+        // ESTIMATE tags carry a gold asterisk.
+        const est = t.basis === 'ESTIMATE' ? '<span class="est-mark" aria-label="ESTIMATE">*</span>' : '';
+        return `<tr title="${tip}"><td class="tg">${t.tag}${est}<div class="tdesc">${esc(t.desc)}</div></td><td class="num"><span data-tag-pv="${t.tag}">—</span> <small>${esc(t.eu)}</small></td><td class="num lim">${lim}</td><td class="num" data-tag-sp="${t.tag}">${t.sp ? '' : '—'}</td><td><span class="tag-st" data-tag-st="${t.tag}">—</span></td></tr>`;
+      })
+      .join('');
+    const trainHtml = `<div class="train-strip"><span class="train-k">Liquid</span> ${train.liquid.map(esc).join(' <span class="arr">→</span> ')}${train.solids.length ? `<br /><span class="train-k">Solids</span> ${train.solids.map(esc).join(' <span class="arr">→</span> ')}` : ''}</div>`;
+    return `<details class="scada-taglist" id="tagListBox">
+        <summary>Process train &amp; tag list <small>${this.tagDefs.length} tags · LL / L / H / HH</small></summary>
+        ${trainHtml}
+        <div class="tag-table-wrap"><table class="tag-table"><thead><tr><th>Tag</th><th>PV</th><th>LL / L / H / HH</th><th>SP</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="scada-hint"><span class="est-mark">*</span> ESTIMATE = typical Ontario practice, not plant data (<a href="${MECP_DESIGN_GUIDELINES}" target="_blank" rel="noopener">MECP Design Guidelines</a>). ECA = plant objective from plants.json. Hover a row for its range and note.</p>
+      </details>`;
+  }
+
+  private updateTagList(state: SimState): void {
+    const box = this.el.querySelector('#tagListBox') as HTMLDetailsElement | null;
+    if (!box?.open) return;
+    const sp = this.model.setpoints;
+    for (const { t, pv, st, sp: spEl } of this.tagCells) {
+      const v = t.pv(state);
+      if (pv) pv.textContent = v == null ? '—' : v.toFixed(t.digits);
+      if (spEl && t.sp) {
+        const s = t.sp(sp);
+        spEl.textContent = s == null ? '—' : t.tag.includes('AIT-301') ? s.toFixed(1) : `${s.toFixed(0)}%`;
+      }
+      if (st) {
+        const s = tagState(t, v);
+        if (st.textContent !== s) {
+          st.textContent = s;
+          st.className = `tag-st st-${s.toLowerCase()}`;
+        }
+      }
+    }
   }
 
   private syncReadout(key: string, text: string): void {
@@ -324,8 +374,15 @@ export class ScadaOverlay {
         <div class="ctrl-head alarms-head">Alarms <span class="alarm-count" id="alarmCount"></span> <button type="button" class="ack-btn" id="ackAlarms" title="Acknowledge (A)">ACK</button></div>
         <div id="alarmList" class="alarm-list"></div>
       </div>
+      ${this.tagListHtml()}
       <div class="status-strip" id="statusStrip">Shift 0:00 · NORMAL</div>
     `;
+    this.tagCells = this.tagDefs.map((t) => ({
+      t,
+      pv: this.el.querySelector(`[data-tag-pv="${t.tag}"]`) as HTMLElement | null,
+      st: this.el.querySelector(`[data-tag-st="${t.tag}"]`) as HTMLElement | null,
+      sp: this.el.querySelector(`[data-tag-sp="${t.tag}"]`) as HTMLElement | null,
+    }));
   }
 
   private bindControls(): void {

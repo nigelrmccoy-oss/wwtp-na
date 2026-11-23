@@ -1,3 +1,4 @@
+import { footprintRegistryFor } from '../world/gisLayout';
 import plantsData from '../data/plants.json';
 import { menuPlants, formatFlow, type PlantRuntime, type PlantsFile } from '../data/plantTypes';
 import { audio } from '../audio/AudioEngine';
@@ -85,9 +86,14 @@ export function mountMenu(root: HTMLElement, onStart: StartCb): { show: () => vo
       p.flowUnit === 'm3/d'
         ? `${(p.designCapacityMld * 1000).toFixed(1)} m³/d design`
         : `${p.designCapacityMld} MLD design`;
+    const reg = footprintRegistryFor(p.id);
+    const units = reg ? Object.values(reg.units) : [];
+    const fpLine = reg
+      ? `<br/><span class="fp-line">Footprints: ${units.filter((u) => !u.synthetic).length} units on real OSM outlines${units.some((u) => u.basis === 'ESTIMATE') ? ' · roles marked ESTIMATE where no public site plan names them' : ''}${units.some((u) => u.synthetic) ? ` · ${units.filter((u) => u.synthetic).length} estimated shape` : ''}</span>`
+      : '';
     blurb.innerHTML = `<strong>${p.name}</strong> · ${p.municipality}<br/>
       ${desDisp} · typical flow ~${avgDisp}<br/>
-      <span class="muted">${p.notes}</span>`;
+      <span class="muted">${p.notes}</span>${fpLine}`;
   }
   sel.addEventListener('change', () => {
     audio.uiClick();

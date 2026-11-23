@@ -329,6 +329,8 @@ export class ProcessModel {
     const alarms: Alarm[] = [];
     if (this.doMgL < 1.0) alarms.push({ id: 'do_low', severity: 'alarm', message: `DO LOW ${this.doMgL.toFixed(1)} mg/L` });
     else if (this.doMgL < 1.5) alarms.push({ id: 'do_warn', severity: 'warn', message: `DO marginal ${this.doMgL.toFixed(1)} mg/L` });
+    // v0.3.16: over-aeration wastes blower energy (tag AIT-301 H limit, ESTIMATE).
+    else if (this.doMgL > 4.5) alarms.push({ id: 'do_high', severity: 'warn', message: `DO high ${this.doMgL.toFixed(1)} mg/L — trim blowers` });
     if (this.wetWellLevel > 90 || this.primaryLevel > 90 || this.aerationLevel > 92 || this.secondaryLevel > 90) {
       alarms.push({ id: 'overflow', severity: 'alarm', message: 'OVERFLOW RISK — high tank level' });
     } else if (this.wetWellLevel > 82 && sp.pumpSpeedPct < 70) {

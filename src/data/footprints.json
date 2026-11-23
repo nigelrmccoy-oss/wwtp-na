@@ -1,0 +1,4545 @@
+{
+ "version": "v0316",
+ "attribution": "\u00a9 OpenStreetMap contributors (ODbL)",
+ "refs": {
+  "KIT_EA": "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf",
+  "KIT_T2021_134": "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/5c366422-d883-4372-97d4-5958652cdd82",
+  "KIT_T2024_180": "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/f0d19131-3690-4298-9d46-c173c1911a40",
+  "ROW_WWTMP_2018": "https://www.regionofwaterloo.ca/media/j45krx0g/ws2018wastewater_treatment_master_plan_wwtmp_final_report.pdf",
+  "ROW_TM2_2017": "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf",
+  "WAT_T2024_198": "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/4540397b-20eb-4462-b967-aa26e553180a",
+  "WAT_AER_UV_2023": "https://projects.constructconnect.com/details/6311004-waterloo-wwtp-aeration-and-uv-bypass-upgrades",
+  "GALT_T2020_123": "https://calendar.regionofwaterloo.ca/Council/Detail/2020-06-24-1900-Council/8690f11e-6cee-4565-a917-abe300f7d111",
+  "STJ_MP_2013": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf",
+  "HAM_CITY": "https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems",
+  "HAM_DIAGRAM": "https://www.hamilton.ca/sites/default/files/2023-02/wastewater-treatment-diagram-water-treatment-process-v2.pdf",
+  "HAM_NACS": "https://nacsworld.com/project/woodward-ave-wastewater-treatment-plant",
+  "TOR_FACILITY": "https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/",
+  "TOR_AR_2025": "https://www.toronto.ca/wp-content/uploads/2026/06/9914-2025-TAB-Annual-Report-Final-AODA.pdf"
+ },
+ "plants": {
+  "waterloo": {
+   "plantWay": "way/398629823",
+   "plantWayUrl": "https://www.openstreetmap.org/way/398629823",
+   "units": {
+    "primary": {
+     "shape": "cyl",
+     "basis": "ESTIMATE",
+     "note": "Four OSM water=wastewater circles (\u2248403 m\u00b2 each, r\u224811 m) beside the digesters; smallest circular tanks upstream of aeration, so taken as primaries.",
+     "sources": [
+      "https://www.openstreetmap.org/way/799495395",
+      "https://www.openstreetmap.org/way/799495396",
+      "https://www.openstreetmap.org/way/799495397",
+      "https://www.openstreetmap.org/way/799495398",
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf",
+      "https://projects.constructconnect.com/details/6311004-waterloo-wwtp-aeration-and-uv-bypass-upgrades"
+     ],
+     "osm": [
+      {
+       "way": "way/799495395",
+       "url": "https://www.openstreetmap.org/way/799495395",
+       "areaM2": 406,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -117.36,
+         -108.66
+        ],
+        [
+         -116.34,
+         -113.03
+        ],
+        [
+         -113.73,
+         -116.69
+        ],
+        [
+         -109.91,
+         -119.07
+        ],
+        [
+         -105.49,
+         -119.8
+        ],
+        [
+         -101.11,
+         -118.78
+        ],
+        [
+         -97.45,
+         -116.16
+        ],
+        [
+         -95.08,
+         -112.36
+        ],
+        [
+         -94.34,
+         -107.92
+        ],
+        [
+         -95.36,
+         -103.55
+        ],
+        [
+         -97.98,
+         -99.9
+        ],
+        [
+         -101.79,
+         -97.52
+        ],
+        [
+         -106.21,
+         -96.78
+        ],
+        [
+         -110.59,
+         -97.79
+        ],
+        [
+         -114.25,
+         -100.41
+        ],
+        [
+         -116.63,
+         -104.23
+        ]
+       ]
+      },
+      {
+       "way": "way/799495396",
+       "url": "https://www.openstreetmap.org/way/799495396",
+       "areaM2": 406,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -144.89,
+         -120.4
+        ],
+        [
+         -142.8,
+         -124.38
+        ],
+        [
+         -139.35,
+         -127.25
+        ],
+        [
+         -135.06,
+         -128.59
+        ],
+        [
+         -130.59,
+         -128.17
+        ],
+        [
+         -126.61,
+         -126.08
+        ],
+        [
+         -123.74,
+         -122.63
+        ],
+        [
+         -122.41,
+         -118.34
+        ],
+        [
+         -122.81,
+         -113.87
+        ],
+        [
+         -124.9,
+         -109.9
+        ],
+        [
+         -128.36,
+         -107.02
+        ],
+        [
+         -132.65,
+         -105.69
+        ],
+        [
+         -137.12,
+         -106.1
+        ],
+        [
+         -141.1,
+         -108.18
+        ],
+        [
+         -143.97,
+         -111.64
+        ],
+        [
+         -145.31,
+         -115.93
+        ]
+       ]
+      },
+      {
+       "way": "way/799495397",
+       "url": "https://www.openstreetmap.org/way/799495397",
+       "areaM2": 406,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -127.08,
+         -77.12
+        ],
+        [
+         -126.17,
+         -81.52
+        ],
+        [
+         -123.64,
+         -85.24
+        ],
+        [
+         -119.88,
+         -87.7
+        ],
+        [
+         -115.47,
+         -88.53
+        ],
+        [
+         -111.07,
+         -87.62
+        ],
+        [
+         -107.36,
+         -85.09
+        ],
+        [
+         -104.9,
+         -81.33
+        ],
+        [
+         -104.06,
+         -76.92
+        ],
+        [
+         -104.98,
+         -72.52
+        ],
+        [
+         -107.51,
+         -68.81
+        ],
+        [
+         -111.26,
+         -66.35
+        ],
+        [
+         -115.68,
+         -65.51
+        ],
+        [
+         -120.07,
+         -66.42
+        ],
+        [
+         -123.79,
+         -68.95
+        ],
+        [
+         -126.25,
+         -72.71
+        ]
+       ]
+      },
+      {
+       "way": "way/799495398",
+       "url": "https://www.openstreetmap.org/way/799495398",
+       "areaM2": 406,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -155.02,
+         -87.11
+        ],
+        [
+         -153.68,
+         -91.39
+        ],
+        [
+         -150.8,
+         -94.83
+        ],
+        [
+         -146.82,
+         -96.92
+        ],
+        [
+         -142.34,
+         -97.32
+        ],
+        [
+         -138.05,
+         -95.97
+        ],
+        [
+         -134.61,
+         -93.09
+        ],
+        [
+         -132.53,
+         -89.11
+        ],
+        [
+         -132.13,
+         -84.64
+        ],
+        [
+         -133.47,
+         -80.35
+        ],
+        [
+         -136.36,
+         -76.9
+        ],
+        [
+         -140.34,
+         -74.82
+        ],
+        [
+         -144.81,
+         -74.42
+        ],
+        [
+         -149.1,
+         -75.76
+        ],
+        [
+         -152.54,
+         -78.65
+        ],
+        [
+         -154.63,
+         -82.63
+        ]
+       ]
+      }
+     ]
+    },
+    "aeration": {
+     "shape": "basin",
+     "basis": "ESTIMATE",
+     "note": "Single L-shaped OSM wastewater polygon (\u22485,200 m\u00b2); ortho shows anoxic cells (NW leg) and the aeration grid as one outline. 2023 tender confirms anoxic-zone mixers and a primary effluent channel feeding it.",
+     "sources": [
+      "https://www.openstreetmap.org/way/39945504",
+      "https://projects.constructconnect.com/details/6311004-waterloo-wwtp-aeration-and-uv-bypass-upgrades",
+      "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/4540397b-20eb-4462-b967-aa26e553180a"
+     ],
+     "osm": [
+      {
+       "way": "way/39945504",
+       "url": "https://www.openstreetmap.org/way/39945504",
+       "areaM2": 5216,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec_Import_2009",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         101.89,
+         13.69
+        ],
+        [
+         55.14,
+         -1.24
+        ],
+        [
+         68.8,
+         -44.04
+        ],
+        [
+         29.41,
+         -56.61
+        ],
+        [
+         40.28,
+         -90.64
+        ],
+        [
+         72.22,
+         -80.44
+        ],
+        [
+         70.05,
+         -73.63
+        ],
+        [
+         77.49,
+         -71.24
+        ],
+        [
+         78.66,
+         -74.91
+        ],
+        [
+         125.4,
+         -59.99
+        ]
+       ]
+      }
+     ]
+    },
+    "secondary": {
+     "shape": "cyl",
+     "basis": "ESTIMATE",
+     "note": "Four OSM content=sewage circles (\u22481,063 m\u00b2, r\u224818.4 m) downstream (east) of aeration.",
+     "sources": [
+      "https://www.openstreetmap.org/way/799495388",
+      "https://www.openstreetmap.org/way/799495389",
+      "https://www.openstreetmap.org/way/799495390",
+      "https://www.openstreetmap.org/way/799495391",
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/799495388",
+       "url": "https://www.openstreetmap.org/way/799495388",
+       "areaM2": 1071,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         150.75,
+         34.45
+        ],
+        [
+         154.16,
+         31.56
+        ],
+        [
+         156.78,
+         27.93
+        ],
+        [
+         158.45,
+         23.79
+        ],
+        [
+         159.08,
+         19.36
+        ],
+        [
+         158.64,
+         14.91
+        ],
+        [
+         157.15,
+         10.69
+        ],
+        [
+         154.68,
+         6.96
+        ],
+        [
+         151.39,
+         3.92
+        ],
+        [
+         147.48,
+         1.76
+        ],
+        [
+         143.16,
+         0.6
+        ],
+        [
+         138.69,
+         0.5
+        ],
+        [
+         134.32,
+         1.48
+        ],
+        [
+         130.32,
+         3.47
+        ],
+        [
+         126.91,
+         6.37
+        ],
+        [
+         124.29,
+         10.0
+        ],
+        [
+         122.62,
+         14.15
+        ],
+        [
+         121.99,
+         18.57
+        ],
+        [
+         122.43,
+         23.02
+        ],
+        [
+         123.93,
+         27.24
+        ],
+        [
+         126.39,
+         30.97
+        ],
+        [
+         129.68,
+         34.01
+        ],
+        [
+         133.59,
+         36.17
+        ],
+        [
+         137.91,
+         37.33
+        ],
+        [
+         142.38,
+         37.43
+        ],
+        [
+         146.75,
+         36.45
+        ]
+       ]
+      },
+      {
+       "way": "way/799495389",
+       "url": "https://www.openstreetmap.org/way/799495389",
+       "areaM2": 1071,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         193.03,
+         47.1
+        ],
+        [
+         196.15,
+         43.88
+        ],
+        [
+         198.4,
+         40.02
+        ],
+        [
+         199.67,
+         35.73
+        ],
+        [
+         199.87,
+         31.27
+        ],
+        [
+         199.0,
+         26.88
+        ],
+        [
+         197.1,
+         22.83
+        ],
+        [
+         194.29,
+         19.35
+        ],
+        [
+         190.73,
+         16.64
+        ],
+        [
+         186.62,
+         14.87
+        ],
+        [
+         182.21,
+         14.13
+        ],
+        [
+         177.75,
+         14.47
+        ],
+        [
+         173.5,
+         15.86
+        ],
+        [
+         169.71,
+         18.23
+        ],
+        [
+         166.59,
+         21.45
+        ],
+        [
+         164.34,
+         25.3
+        ],
+        [
+         163.07,
+         29.6
+        ],
+        [
+         162.87,
+         34.06
+        ],
+        [
+         163.74,
+         38.45
+        ],
+        [
+         165.64,
+         42.5
+        ],
+        [
+         168.45,
+         45.99
+        ],
+        [
+         172.01,
+         48.69
+        ],
+        [
+         176.12,
+         50.46
+        ],
+        [
+         180.53,
+         51.2
+        ],
+        [
+         184.99,
+         50.86
+        ],
+        [
+         189.24,
+         49.47
+        ]
+       ]
+      },
+      {
+       "way": "way/799495390",
+       "url": "https://www.openstreetmap.org/way/799495390",
+       "areaM2": 1071,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         205.23,
+         6.82
+        ],
+        [
+         208.63,
+         3.92
+        ],
+        [
+         211.24,
+         0.29
+        ],
+        [
+         212.9,
+         -3.86
+        ],
+        [
+         213.51,
+         -8.29
+        ],
+        [
+         213.05,
+         -12.75
+        ],
+        [
+         211.54,
+         -16.95
+        ],
+        [
+         209.07,
+         -20.68
+        ],
+        [
+         205.77,
+         -23.7
+        ],
+        [
+         201.85,
+         -25.85
+        ],
+        [
+         197.53,
+         -27.0
+        ],
+        [
+         193.05,
+         -27.07
+        ],
+        [
+         188.69,
+         -26.08
+        ],
+        [
+         184.69,
+         -24.08
+        ],
+        [
+         181.29,
+         -21.17
+        ],
+        [
+         178.69,
+         -17.53
+        ],
+        [
+         177.03,
+         -13.38
+        ],
+        [
+         176.42,
+         -8.95
+        ],
+        [
+         176.88,
+         -4.5
+        ],
+        [
+         178.39,
+         -0.29
+        ],
+        [
+         180.87,
+         3.43
+        ],
+        [
+         184.16,
+         6.46
+        ],
+        [
+         188.08,
+         8.61
+        ],
+        [
+         192.41,
+         9.75
+        ],
+        [
+         196.87,
+         9.83
+        ],
+        [
+         201.24,
+         8.84
+        ]
+       ]
+      },
+      {
+       "way": "way/799495391",
+       "url": "https://www.openstreetmap.org/way/799495391",
+       "areaM2": 1071,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         162.58,
+         -5.81
+        ],
+        [
+         166.29,
+         -8.3
+        ],
+        [
+         169.28,
+         -11.62
+        ],
+        [
+         171.41,
+         -15.56
+        ],
+        [
+         172.52,
+         -19.89
+        ],
+        [
+         172.57,
+         -24.37
+        ],
+        [
+         171.55,
+         -28.72
+        ],
+        [
+         169.51,
+         -32.71
+        ],
+        [
+         166.58,
+         -36.08
+        ],
+        [
+         162.93,
+         -38.66
+        ],
+        [
+         158.76,
+         -40.29
+        ],
+        [
+         154.33,
+         -40.88
+        ],
+        [
+         149.88,
+         -40.39
+        ],
+        [
+         145.68,
+         -38.84
+        ],
+        [
+         141.98,
+         -36.35
+        ],
+        [
+         138.97,
+         -33.03
+        ],
+        [
+         136.85,
+         -29.09
+        ],
+        [
+         135.73,
+         -24.76
+        ],
+        [
+         135.69,
+         -20.28
+        ],
+        [
+         136.71,
+         -15.93
+        ],
+        [
+         138.75,
+         -11.94
+        ],
+        [
+         141.68,
+         -8.57
+        ],
+        [
+         145.34,
+         -5.99
+        ],
+        [
+         149.5,
+         -4.36
+        ],
+        [
+         153.93,
+         -3.77
+        ],
+        [
+         158.38,
+         -4.26
+        ]
+       ]
+      }
+     ]
+    },
+    "digesters": {
+     "shape": "cyl",
+     "basis": "OSM-TAGGED",
+     "note": "OSM man_made=storage_tank, content=sewage.",
+     "sources": [
+      "https://www.openstreetmap.org/way/799495393",
+      "https://www.openstreetmap.org/way/799495394"
+     ],
+     "osm": [
+      {
+       "way": "way/799495393",
+       "url": "https://www.openstreetmap.org/way/799495393",
+       "areaM2": 799,
+       "tags": {
+        "building": "storage_tank",
+        "content": "sewage",
+        "man_made": "storage_tank"
+       },
+       "ring": [
+        [
+         -201.9,
+         -92.79
+        ],
+        [
+         -201.41,
+         -88.96
+        ],
+        [
+         -200.02,
+         -85.35
+        ],
+        [
+         -197.79,
+         -82.18
+        ],
+        [
+         -194.89,
+         -79.64
+        ],
+        [
+         -191.45,
+         -77.87
+        ],
+        [
+         -187.7,
+         -76.97
+        ],
+        [
+         -183.83,
+         -76.99
+        ],
+        [
+         -180.08,
+         -77.95
+        ],
+        [
+         -176.67,
+         -79.76
+        ],
+        [
+         -173.8,
+         -82.34
+        ],
+        [
+         -171.63,
+         -85.54
+        ],
+        [
+         -170.28,
+         -89.16
+        ],
+        [
+         -169.84,
+         -93.0
+        ],
+        [
+         -170.33,
+         -96.84
+        ],
+        [
+         -171.72,
+         -100.43
+        ],
+        [
+         -173.63,
+         -103.15
+        ],
+        [
+         -173.94,
+         -103.61
+        ],
+        [
+         -176.85,
+         -106.14
+        ],
+        [
+         -180.28,
+         -107.91
+        ],
+        [
+         -182.86,
+         -108.54
+        ],
+        [
+         -184.05,
+         -108.82
+        ],
+        [
+         -187.91,
+         -108.79
+        ],
+        [
+         -191.66,
+         -107.85
+        ],
+        [
+         -195.06,
+         -106.02
+        ],
+        [
+         -197.94,
+         -103.44
+        ],
+        [
+         -200.11,
+         -100.24
+        ],
+        [
+         -201.46,
+         -96.63
+        ]
+       ]
+      },
+      {
+       "way": "way/799495394",
+       "url": "https://www.openstreetmap.org/way/799495394",
+       "areaM2": 799,
+       "tags": {
+        "building": "storage_tank",
+        "content": "sewage",
+        "man_made": "storage_tank"
+       },
+       "ring": [
+        [
+         -188.9,
+         -135.45
+        ],
+        [
+         -188.41,
+         -131.62
+        ],
+        [
+         -187.02,
+         -128.02
+        ],
+        [
+         -184.8,
+         -124.86
+        ],
+        [
+         -181.89,
+         -122.32
+        ],
+        [
+         -179.24,
+         -120.95
+        ],
+        [
+         -178.46,
+         -120.54
+        ],
+        [
+         -174.7,
+         -119.64
+        ],
+        [
+         -170.83,
+         -119.67
+        ],
+        [
+         -168.6,
+         -120.24
+        ],
+        [
+         -167.09,
+         -120.62
+        ],
+        [
+         -163.68,
+         -122.44
+        ],
+        [
+         -160.8,
+         -125.02
+        ],
+        [
+         -158.63,
+         -128.22
+        ],
+        [
+         -157.28,
+         -131.84
+        ],
+        [
+         -156.84,
+         -135.68
+        ],
+        [
+         -157.33,
+         -139.51
+        ],
+        [
+         -158.73,
+         -143.11
+        ],
+        [
+         -160.94,
+         -146.27
+        ],
+        [
+         -163.86,
+         -148.82
+        ],
+        [
+         -167.29,
+         -150.59
+        ],
+        [
+         -171.04,
+         -151.5
+        ],
+        [
+         -174.91,
+         -151.47
+        ],
+        [
+         -178.66,
+         -150.52
+        ],
+        [
+         -182.07,
+         -148.7
+        ],
+        [
+         -184.94,
+         -146.12
+        ],
+        [
+         -187.12,
+         -142.92
+        ],
+        [
+         -188.47,
+         -139.29
+        ]
+       ]
+      }
+     ]
+    },
+    "headworks": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "\u2248440 m\u00b2 OSM building on the west side, upstream of the primaries; OSM does not name it.",
+     "sources": [
+      "https://www.openstreetmap.org/way/799495413",
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/799495413",
+       "url": "https://www.openstreetmap.org/way/799495413",
+       "areaM2": 444,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         -109.61,
+         -35.27
+        ],
+        [
+         -82.75,
+         -26.38
+        ],
+        [
+         -87.68,
+         -11.5
+        ],
+        [
+         -114.54,
+         -20.38
+        ]
+       ]
+      }
+     ]
+    },
+    "solids": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "Largest OSM building (\u22482,130 m\u00b2) between primaries/digesters and aeration \u2014 taken as the WAS thickening / centrifuge dewatering building. Could instead be the blower building (T2024-198).",
+     "sources": [
+      "https://www.openstreetmap.org/way/799495404",
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf",
+      "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/4540397b-20eb-4462-b967-aa26e553180a"
+     ],
+     "osm": [
+      {
+       "way": "way/799495404",
+       "url": "https://www.openstreetmap.org/way/799495404",
+       "areaM2": 2132,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         -62.54,
+         -73.56
+        ],
+        [
+         -57.95,
+         -72.26
+        ],
+        [
+         -57.26,
+         -74.68
+        ],
+        [
+         -56.38,
+         -75.62
+        ],
+        [
+         -55.24,
+         -76.24
+        ],
+        [
+         -53.75,
+         -76.4
+        ],
+        [
+         -52.72,
+         -76.0
+        ],
+        [
+         -51.5,
+         -75.07
+        ],
+        [
+         -51.21,
+         -74.15
+        ],
+        [
+         -50.87,
+         -73.93
+        ],
+        [
+         -46.57,
+         -89.08
+        ],
+        [
+         -40.43,
+         -87.33
+        ],
+        [
+         -44.53,
+         -72.85
+        ],
+        [
+         -43.1,
+         -72.44
+        ],
+        [
+         -42.23,
+         -72.71
+        ],
+        [
+         -41.13,
+         -72.52
+        ],
+        [
+         -40.19,
+         -71.96
+        ],
+        [
+         -39.45,
+         -70.88
+        ],
+        [
+         -39.24,
+         -69.6
+        ],
+        [
+         -41.28,
+         -62.38
+        ],
+        [
+         -35.84,
+         -60.84
+        ],
+        [
+         -33.37,
+         -69.52
+        ],
+        [
+         -5.44,
+         -61.6
+        ],
+        [
+         -15.43,
+         -26.35
+        ],
+        [
+         -70.3,
+         -41.9
+        ],
+        [
+         -63.03,
+         -67.53
+        ],
+        [
+         -64.17,
+         -67.84
+        ]
+       ]
+      }
+     ]
+    },
+    "disinfection": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "\u2248640 m\u00b2 OSM building directly downstream (SE) of the secondary clarifiers \u2014 taken as the UV building (2023 tender: UV system + UV bypass chamber).",
+     "sources": [
+      "https://www.openstreetmap.org/way/799495409",
+      "https://projects.constructconnect.com/details/6311004-waterloo-wwtp-aeration-and-uv-bypass-upgrades"
+     ],
+     "osm": [
+      {
+       "way": "way/799495409",
+       "url": "https://www.openstreetmap.org/way/799495409",
+       "areaM2": 642,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         147.11,
+         57.45
+        ],
+        [
+         169.99,
+         64.63
+        ],
+        [
+         169.7,
+         65.56
+        ],
+        [
+         178.22,
+         68.23
+        ],
+        [
+         176.33,
+         74.27
+        ],
+        [
+         174.61,
+         73.73
+        ],
+        [
+         170.67,
+         86.31
+        ],
+        [
+         140.98,
+         76.99
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "keepHeuristic": [],
+   "notes": {},
+   "excluded": [],
+   "unmapped": [],
+   "conflicts": []
+  },
+  "kitchener": {
+   "plantWay": "way/154430088",
+   "plantWayUrl": "https://www.openstreetmap.org/way/154430088",
+   "units": {
+    "primary": {
+     "shape": "lanes",
+     "lanes": 4,
+     "basis": "SOURCE",
+     "note": "EA Fig. 2-1 (Site Plan, p.11) puts 'Preliminary and Primary Treatment' at this partitioned rectangle SW of Plant 2 (located by matching the figure to the ortho); T2021-134 confirms four rectangular primaries (3 Fujiwara mechanisms each). OSM maps the outer wall only \u2014 the 4 lanes are split evenly inside it (ESTIMATE).",
+     "sources": [
+      "https://www.openstreetmap.org/way/39457430",
+      "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf",
+      "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/5c366422-d883-4372-97d4-5958652cdd82"
+     ],
+     "osm": [
+      {
+       "way": "way/39457430",
+       "url": "https://www.openstreetmap.org/way/39457430",
+       "areaM2": 5474,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec_Import_2009",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -85.54,
+         13.96
+        ],
+        [
+         -119.31,
+         -36.55
+        ],
+        [
+         -44.43,
+         -86.63
+        ],
+        [
+         -10.64,
+         -36.11
+        ],
+        [
+         -27.38,
+         -24.92
+        ],
+        [
+         -32.88,
+         -21.25
+        ]
+       ]
+      }
+     ]
+    },
+    "aeration": {
+     "shape": "basin",
+     "basis": "ESTIMATE",
+     "note": "Two OSM wastewater outlines with plug-flow lanes on the former biosolids-lagoon site \u2014 the Plant 3 aeration tanks per EA Contract 4 (lagoons decommissioned in Contract 1).",
+     "sources": [
+      "https://www.openstreetmap.org/way/815746498",
+      "https://www.openstreetmap.org/way/815746499",
+      "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf",
+      "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/f0d19131-3690-4298-9d46-c173c1911a40"
+     ],
+     "osm": [
+      {
+       "way": "way/815746498",
+       "url": "https://www.openstreetmap.org/way/815746498",
+       "areaM2": 4472,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec_Import_2009",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -30.23,
+         -100.08
+        ],
+        [
+         14.49,
+         -129.29
+        ],
+        [
+         60.28,
+         -59.19
+        ],
+        [
+         15.58,
+         -29.99
+        ]
+       ]
+      },
+      {
+       "way": "way/815746499",
+       "url": "https://www.openstreetmap.org/way/815746499",
+       "areaM2": 7991,
+       "tags": {
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         80.42,
+         3.27
+        ],
+        [
+         148.15,
+         -41.58
+        ],
+        [
+         202.46,
+         40.45
+        ],
+        [
+         134.75,
+         85.3
+        ]
+       ]
+      }
+     ]
+    },
+    "secondary": {
+     "shape": "cyl",
+     "basis": "ESTIMATE",
+     "note": "Ten OSM content=sewage circles on the lagoon site (6 \u00d7 r\u224819.3 m, 4 \u00d7 r\u224816.8 m); EA Contract 4 describes new final clarifiers in groups of four.",
+     "sources": [
+      "https://www.openstreetmap.org/way/815746500",
+      "https://www.openstreetmap.org/way/815746501",
+      "https://www.openstreetmap.org/way/815746502",
+      "https://www.openstreetmap.org/way/815746503",
+      "https://www.openstreetmap.org/way/815746504",
+      "https://www.openstreetmap.org/way/815746505",
+      "https://www.openstreetmap.org/way/815746494",
+      "https://www.openstreetmap.org/way/815746495",
+      "https://www.openstreetmap.org/way/815746496",
+      "https://www.openstreetmap.org/way/815746497",
+      "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/815746500",
+       "url": "https://www.openstreetmap.org/way/815746500",
+       "areaM2": 1180,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         183.07,
+         -77.55
+        ],
+        [
+         178.37,
+         -72.74
+        ],
+        [
+         172.31,
+         -69.8
+        ],
+        [
+         165.61,
+         -69.1
+        ],
+        [
+         159.07,
+         -70.7
+        ],
+        [
+         153.46,
+         -74.43
+        ],
+        [
+         149.45,
+         -79.84
+        ],
+        [
+         147.52,
+         -86.28
+        ],
+        [
+         147.76,
+         -92.46
+        ],
+        [
+         149.92,
+         -98.24
+        ],
+        [
+         153.77,
+         -103.07
+        ],
+        [
+         158.93,
+         -106.46
+        ],
+        [
+         164.89,
+         -108.06
+        ],
+        [
+         171.05,
+         -107.74
+        ],
+        [
+         176.81,
+         -105.5
+        ],
+        [
+         181.58,
+         -101.58
+        ],
+        [
+         184.89,
+         -96.37
+        ],
+        [
+         186.41,
+         -90.39
+        ],
+        [
+         185.86,
+         -83.68
+        ]
+       ]
+      },
+      {
+       "way": "way/815746501",
+       "url": "https://www.openstreetmap.org/way/815746501",
+       "areaM2": 1180,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         233.23,
+         -77.57
+        ],
+        [
+         228.52,
+         -72.76
+        ],
+        [
+         222.47,
+         -69.82
+        ],
+        [
+         215.77,
+         -69.12
+        ],
+        [
+         209.22,
+         -70.72
+        ],
+        [
+         203.62,
+         -74.45
+        ],
+        [
+         199.61,
+         -79.86
+        ],
+        [
+         197.67,
+         -86.32
+        ],
+        [
+         197.92,
+         -92.48
+        ],
+        [
+         200.08,
+         -98.26
+        ],
+        [
+         203.93,
+         -103.09
+        ],
+        [
+         209.09,
+         -106.48
+        ],
+        [
+         215.05,
+         -108.08
+        ],
+        [
+         221.21,
+         -107.76
+        ],
+        [
+         226.97,
+         -105.52
+        ],
+        [
+         231.74,
+         -101.6
+        ],
+        [
+         235.05,
+         -96.39
+        ],
+        [
+         236.58,
+         -90.41
+        ],
+        [
+         236.02,
+         -83.7
+        ]
+       ]
+      },
+      {
+       "way": "way/815746502",
+       "url": "https://www.openstreetmap.org/way/815746502",
+       "areaM2": 1180,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         212.55,
+         -34.21
+        ],
+        [
+         207.84,
+         -29.4
+        ],
+        [
+         201.77,
+         -26.46
+        ],
+        [
+         195.08,
+         -25.76
+        ],
+        [
+         188.54,
+         -27.36
+        ],
+        [
+         182.94,
+         -31.09
+        ],
+        [
+         178.93,
+         -36.5
+        ],
+        [
+         176.99,
+         -42.95
+        ],
+        [
+         177.23,
+         -49.11
+        ],
+        [
+         179.39,
+         -54.9
+        ],
+        [
+         183.24,
+         -59.73
+        ],
+        [
+         188.4,
+         -63.12
+        ],
+        [
+         194.37,
+         -64.72
+        ],
+        [
+         200.53,
+         -64.39
+        ],
+        [
+         206.28,
+         -62.16
+        ],
+        [
+         211.05,
+         -58.24
+        ],
+        [
+         214.37,
+         -53.03
+        ],
+        [
+         215.89,
+         -47.04
+        ],
+        [
+         215.34,
+         -40.34
+        ]
+       ]
+      },
+      {
+       "way": "way/815746503",
+       "url": "https://www.openstreetmap.org/way/815746503",
+       "areaM2": 1180,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         237.47,
+         2.17
+        ],
+        [
+         232.76,
+         6.99
+        ],
+        [
+         226.7,
+         9.92
+        ],
+        [
+         220.01,
+         10.63
+        ],
+        [
+         213.46,
+         9.02
+        ],
+        [
+         207.86,
+         5.29
+        ],
+        [
+         203.85,
+         -0.12
+        ],
+        [
+         201.91,
+         -6.57
+        ],
+        [
+         202.16,
+         -12.74
+        ],
+        [
+         204.31,
+         -18.52
+        ],
+        [
+         208.16,
+         -23.34
+        ],
+        [
+         213.33,
+         -26.73
+        ],
+        [
+         219.29,
+         -28.34
+        ],
+        [
+         225.45,
+         -28.01
+        ],
+        [
+         231.2,
+         -25.77
+        ],
+        [
+         235.97,
+         -21.85
+        ],
+        [
+         239.29,
+         -16.64
+        ],
+        [
+         240.81,
+         -10.66
+        ],
+        [
+         240.26,
+         -3.95
+        ]
+       ]
+      },
+      {
+       "way": "way/815746504",
+       "url": "https://www.openstreetmap.org/way/815746504",
+       "areaM2": 1180,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         286.06,
+         1.18
+        ],
+        [
+         281.36,
+         5.99
+        ],
+        [
+         275.29,
+         8.93
+        ],
+        [
+         268.6,
+         9.63
+        ],
+        [
+         262.06,
+         8.03
+        ],
+        [
+         256.45,
+         4.3
+        ],
+        [
+         252.44,
+         -1.11
+        ],
+        [
+         250.51,
+         -7.56
+        ],
+        [
+         250.75,
+         -13.74
+        ],
+        [
+         252.9,
+         -19.51
+        ],
+        [
+         256.76,
+         -24.35
+        ],
+        [
+         261.92,
+         -27.73
+        ],
+        [
+         267.88,
+         -29.33
+        ],
+        [
+         274.05,
+         -29.01
+        ],
+        [
+         279.8,
+         -26.77
+        ],
+        [
+         284.57,
+         -22.85
+        ],
+        [
+         287.88,
+         -17.64
+        ],
+        [
+         289.41,
+         -11.66
+        ],
+        [
+         288.86,
+         -4.95
+        ]
+       ]
+      },
+      {
+       "way": "way/815746505",
+       "url": "https://www.openstreetmap.org/way/815746505",
+       "areaM2": 1180,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         266.87,
+         46.29
+        ],
+        [
+         262.16,
+         51.1
+        ],
+        [
+         256.11,
+         54.03
+        ],
+        [
+         249.41,
+         54.74
+        ],
+        [
+         242.87,
+         53.13
+        ],
+        [
+         237.27,
+         49.4
+        ],
+        [
+         233.26,
+         43.99
+        ],
+        [
+         231.31,
+         37.55
+        ],
+        [
+         231.56,
+         31.37
+        ],
+        [
+         233.72,
+         25.59
+        ],
+        [
+         237.57,
+         20.76
+        ],
+        [
+         242.73,
+         17.38
+        ],
+        [
+         248.69,
+         15.77
+        ],
+        [
+         254.86,
+         16.1
+        ],
+        [
+         260.61,
+         18.33
+        ],
+        [
+         265.38,
+         22.25
+        ],
+        [
+         268.7,
+         27.46
+        ],
+        [
+         270.22,
+         33.45
+        ],
+        [
+         269.67,
+         40.15
+        ]
+       ]
+      },
+      {
+       "way": "way/815746494",
+       "url": "https://www.openstreetmap.org/way/815746494",
+       "areaM2": 893,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         101.89,
+         -150.66
+        ],
+        [
+         97.39,
+         -147.8
+        ],
+        [
+         92.22,
+         -146.47
+        ],
+        [
+         86.89,
+         -146.82
+        ],
+        [
+         81.94,
+         -148.8
+        ],
+        [
+         77.84,
+         -152.22
+        ],
+        [
+         75.0,
+         -156.74
+        ],
+        [
+         73.69,
+         -161.91
+        ],
+        [
+         74.07,
+         -167.24
+        ],
+        [
+         76.06,
+         -172.19
+        ],
+        [
+         79.89,
+         -176.6
+        ],
+        [
+         84.98,
+         -179.46
+        ],
+        [
+         90.74,
+         -180.43
+        ],
+        [
+         96.48,
+         -179.39
+        ],
+        [
+         101.53,
+         -176.48
+        ],
+        [
+         105.31,
+         -172.03
+        ],
+        [
+         107.36,
+         -166.57
+        ],
+        [
+         107.44,
+         -160.72
+        ],
+        [
+         105.55,
+         -155.21
+        ]
+       ]
+      },
+      {
+       "way": "way/815746495",
+       "url": "https://www.openstreetmap.org/way/815746495",
+       "areaM2": 889,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         62.2,
+         -124.02
+        ],
+        [
+         57.69,
+         -120.85
+        ],
+        [
+         52.4,
+         -119.28
+        ],
+        [
+         46.88,
+         -119.5
+        ],
+        [
+         41.73,
+         -121.47
+        ],
+        [
+         37.48,
+         -125.0
+        ],
+        [
+         34.59,
+         -129.7
+        ],
+        [
+         33.36,
+         -135.08
+        ],
+        [
+         33.91,
+         -140.56
+        ],
+        [
+         36.2,
+         -145.58
+        ],
+        [
+         40.09,
+         -149.69
+        ],
+        [
+         45.11,
+         -152.3
+        ],
+        [
+         50.71,
+         -153.1
+        ],
+        [
+         56.26,
+         -152.03
+        ],
+        [
+         61.14,
+         -149.2
+        ],
+        [
+         64.83,
+         -144.92
+        ],
+        [
+         66.91,
+         -139.66
+        ],
+        [
+         67.15,
+         -134.01
+        ],
+        [
+         65.52,
+         -128.6
+        ]
+       ]
+      },
+      {
+       "way": "way/815746496",
+       "url": "https://www.openstreetmap.org/way/815746496",
+       "areaM2": 885,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         127.49,
+         -114.8
+        ],
+        [
+         122.84,
+         -111.51
+        ],
+        [
+         117.36,
+         -109.94
+        ],
+        [
+         111.66,
+         -110.27
+        ],
+        [
+         106.4,
+         -112.49
+        ],
+        [
+         102.18,
+         -116.32
+        ],
+        [
+         99.46,
+         -121.33
+        ],
+        [
+         98.57,
+         -126.96
+        ],
+        [
+         99.59,
+         -132.57
+        ],
+        [
+         102.42,
+         -137.52
+        ],
+        [
+         106.53,
+         -141.13
+        ],
+        [
+         111.56,
+         -143.24
+        ],
+        [
+         117.01,
+         -143.64
+        ],
+        [
+         122.3,
+         -142.29
+        ],
+        [
+         126.88,
+         -139.32
+        ],
+        [
+         130.28,
+         -135.05
+        ],
+        [
+         132.15,
+         -129.92
+        ],
+        [
+         132.28,
+         -124.46
+        ],
+        [
+         130.68,
+         -119.25
+        ]
+       ]
+      },
+      {
+       "way": "way/815746497",
+       "url": "https://www.openstreetmap.org/way/815746497",
+       "areaM2": 885,
+       "tags": {
+        "content": "sewage",
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         87.89,
+         -88.18
+        ],
+        [
+         83.49,
+         -84.65
+        ],
+        [
+         78.17,
+         -82.77
+        ],
+        [
+         72.52,
+         -82.73
+        ],
+        [
+         67.17,
+         -84.56
+        ],
+        [
+         62.73,
+         -88.04
+        ],
+        [
+         59.68,
+         -92.8
+        ],
+        [
+         58.36,
+         -98.28
+        ],
+        [
+         58.91,
+         -103.89
+        ],
+        [
+         61.28,
+         -109.02
+        ],
+        [
+         65.1,
+         -113.0
+        ],
+        [
+         69.98,
+         -115.55
+        ],
+        [
+         75.43,
+         -116.39
+        ],
+        [
+         80.86,
+         -115.43
+        ],
+        [
+         85.7,
+         -112.78
+        ],
+        [
+         89.43,
+         -108.73
+        ],
+        [
+         91.65,
+         -103.68
+        ],
+        [
+         92.14,
+         -98.18
+        ],
+        [
+         90.84,
+         -92.83
+        ]
+       ]
+      }
+     ]
+    },
+    "headworks": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "\u22481,060 m\u00b2 OSM building immediately SE of the primaries; EA Fig. 2-1 co-locates preliminary + primary treatment and Contract 3A replaces the headworks.",
+     "sources": [
+      "https://www.openstreetmap.org/way/815746510",
+      "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/815746510",
+       "url": "https://www.openstreetmap.org/way/815746510",
+       "areaM2": 1059,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         -4.2,
+         36.72
+        ],
+        [
+         -0.86,
+         34.53
+        ],
+        [
+         12.33,
+         25.88
+        ],
+        [
+         26.47,
+         16.61
+        ],
+        [
+         42.31,
+         40.78
+        ],
+        [
+         22.87,
+         53.52
+        ],
+        [
+         20.16,
+         55.29
+        ],
+        [
+         11.65,
+         60.88
+        ]
+       ]
+      }
+     ]
+    },
+    "disinfection": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "1,355 m\u00b2 OSM building on the river side near the old chlorination/dechlorination facility (Fig. 2-1); EA: new UV disinfection + effluent pumping station.",
+     "sources": [
+      "https://www.openstreetmap.org/way/815746506",
+      "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/815746506",
+       "url": "https://www.openstreetmap.org/way/815746506",
+       "areaM2": 1364,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         -7.56,
+         -144.04
+        ],
+        [
+         20.91,
+         -164.45
+        ],
+        [
+         -1.79,
+         -196.1
+        ],
+        [
+         -30.26,
+         -175.67
+        ]
+       ]
+      }
+     ]
+    },
+    "solids": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "948 m\u00b2 OSM building between the Plant 3 tanks \u2014 taken as the WAS thickening building (EA Contract 5 'new sludge thickening'). Dewatering is off-site at Manitou Dr.",
+     "sources": [
+      "https://www.openstreetmap.org/way/492461481",
+      "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/492461481",
+       "url": "https://www.openstreetmap.org/way/492461481",
+       "areaM2": 955,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         87.84,
+         -54.94
+        ],
+        [
+         98.67,
+         -38.74
+        ],
+        [
+         72.2,
+         -21.03
+        ],
+        [
+         66.84,
+         -29.04
+        ],
+        [
+         61.26,
+         -25.3
+        ],
+        [
+         66.64,
+         -17.25
+        ],
+        [
+         55.23,
+         -9.62
+        ],
+        [
+         44.37,
+         -25.86
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "keepHeuristic": [
+    "digesters"
+   ],
+   "notes": {
+    "digesters": "Digestion Complex at way/515109518 per EA Fig. 2-1 (SOURCE); tank circles fitted inside the OSM building outline (v0.3.13)."
+   },
+   "excluded": [],
+   "unmapped": [
+    "Plant 1 aeration grid and 4 Plant 2 circular clarifiers are visible in the ortho (between the digestion complex and the primaries) but have no OSM polygon \u2014 not modelled (Plant 1 is slated for decommissioning in EA Phase 3).",
+    "Plant 2 aeration tanks: no OSM polygon."
+   ],
+   "conflicts": [
+    "v0.3.13\u20130.3.15 placed 45\u00d718 m synthetic primaries on open ground east of the clarifiers and used way/39457430 as aeration; EA Fig. 2-1 shows that rectangle is the primary facility (Code Critic P0)."
+   ]
+  },
+  "galt": {
+   "plantWay": "way/337944783",
+   "plantWayUrl": "https://www.openstreetmap.org/way/337944783",
+   "units": {
+    "primary": {
+     "shape": "cyl",
+     "basis": "ESTIMATE",
+     "note": "Three OSM wastewater circles (\u2248351 m\u00b2, r\u224810.6 m). Galt runs primaries and secondaries; OSM maps only these three, so they stand in for the primaries.",
+     "sources": [
+      "https://www.openstreetmap.org/way/831361022",
+      "https://www.openstreetmap.org/way/831361023",
+      "https://www.openstreetmap.org/way/831361021",
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf",
+      "https://calendar.regionofwaterloo.ca/Council/Detail/2020-06-24-1900-Council/8690f11e-6cee-4565-a917-abe300f7d111"
+     ],
+     "osm": [
+      {
+       "way": "way/831361022",
+       "url": "https://www.openstreetmap.org/way/831361022",
+       "areaM2": 353,
+       "tags": {
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -17.86,
+         -34.56
+        ],
+        [
+         -20.29,
+         -37.21
+        ],
+        [
+         -23.48,
+         -38.9
+        ],
+        [
+         -27.04,
+         -39.44
+        ],
+        [
+         -30.57,
+         -38.77
+        ],
+        [
+         -33.69,
+         -36.96
+        ],
+        [
+         -35.95,
+         -34.35
+        ],
+        [
+         -37.26,
+         -31.16
+        ],
+        [
+         -37.48,
+         -27.72
+        ],
+        [
+         -36.6,
+         -24.38
+        ],
+        [
+         -34.71,
+         -21.5
+        ],
+        [
+         -31.99,
+         -19.37
+        ],
+        [
+         -28.74,
+         -18.22
+        ],
+        [
+         -25.29,
+         -18.16
+        ],
+        [
+         -22.0,
+         -19.2
+        ],
+        [
+         -19.22,
+         -21.24
+        ],
+        [
+         -17.16,
+         -24.19
+        ],
+        [
+         -16.19,
+         -27.66
+        ],
+        [
+         -16.44,
+         -31.25
+        ]
+       ]
+      },
+      {
+       "way": "way/831361023",
+       "url": "https://www.openstreetmap.org/way/831361023",
+       "areaM2": 353,
+       "tags": {
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -10.31,
+         -70.24
+        ],
+        [
+         -12.74,
+         -72.89
+        ],
+        [
+         -15.93,
+         -74.58
+        ],
+        [
+         -19.49,
+         -75.12
+        ],
+        [
+         -23.02,
+         -74.45
+        ],
+        [
+         -26.14,
+         -72.64
+        ],
+        [
+         -28.4,
+         -70.03
+        ],
+        [
+         -29.7,
+         -66.84
+        ],
+        [
+         -29.93,
+         -63.4
+        ],
+        [
+         -29.05,
+         -60.07
+        ],
+        [
+         -27.16,
+         -57.19
+        ],
+        [
+         -24.44,
+         -55.05
+        ],
+        [
+         -21.19,
+         -53.9
+        ],
+        [
+         -17.74,
+         -53.83
+        ],
+        [
+         -14.45,
+         -54.88
+        ],
+        [
+         -11.67,
+         -56.92
+        ],
+        [
+         -9.61,
+         -59.87
+        ],
+        [
+         -8.64,
+         -63.34
+        ],
+        [
+         -8.89,
+         -66.94
+        ]
+       ]
+      },
+      {
+       "way": "way/831361021",
+       "url": "https://www.openstreetmap.org/way/831361021",
+       "areaM2": 353,
+       "tags": {
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         4.82,
+         -49.01
+        ],
+        [
+         2.38,
+         -51.66
+        ],
+        [
+         -0.8,
+         -53.36
+        ],
+        [
+         -4.36,
+         -53.89
+        ],
+        [
+         -7.9,
+         -53.22
+        ],
+        [
+         -11.01,
+         -51.42
+        ],
+        [
+         -13.27,
+         -48.8
+        ],
+        [
+         -14.58,
+         -45.62
+        ],
+        [
+         -14.8,
+         -42.17
+        ],
+        [
+         -13.93,
+         -38.84
+        ],
+        [
+         -12.03,
+         -35.96
+        ],
+        [
+         -9.31,
+         -33.83
+        ],
+        [
+         -6.06,
+         -32.67
+        ],
+        [
+         -2.61,
+         -32.62
+        ],
+        [
+         0.67,
+         -33.65
+        ],
+        [
+         3.46,
+         -35.69
+        ],
+        [
+         5.52,
+         -38.64
+        ],
+        [
+         6.48,
+         -42.11
+        ],
+        [
+         6.24,
+         -45.71
+        ]
+       ]
+      }
+     ]
+    },
+    "aeration": {
+     "shape": "basin",
+     "basis": "ESTIMATE",
+     "note": "1,260 m\u00b2 OSM wastewater rectangle with lanes \u2014 Plant B aeration (T2020-123 adds anoxic zone + diffusers).",
+     "sources": [
+      "https://www.openstreetmap.org/way/831361024",
+      "https://calendar.regionofwaterloo.ca/Council/Detail/2020-06-24-1900-Council/8690f11e-6cee-4565-a917-abe300f7d111"
+     ],
+     "osm": [
+      {
+       "way": "way/831361024",
+       "url": "https://www.openstreetmap.org/way/831361024",
+       "areaM2": 1270,
+       "tags": {
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         18.82,
+         -89.74
+        ],
+        [
+         -3.25,
+         -74.72
+        ],
+        [
+         23.49,
+         -35.41
+        ],
+        [
+         45.57,
+         -50.44
+        ]
+       ]
+      }
+     ]
+    },
+    "tertiary": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "Only OSM building inside the fence (302 m\u00b2, building=service) \u2014 taken as the disc-filter building (T2020-123 replaces sand filters with disc filtration).",
+     "sources": [
+      "https://www.openstreetmap.org/way/831361026",
+      "https://calendar.regionofwaterloo.ca/Council/Detail/2020-06-24-1900-Council/8690f11e-6cee-4565-a917-abe300f7d111"
+     ],
+     "osm": [
+      {
+       "way": "way/831361026",
+       "url": "https://www.openstreetmap.org/way/831361026",
+       "areaM2": 304,
+       "tags": {
+        "building": "service"
+       },
+       "ring": [
+        [
+         34.13,
+         19.74
+        ],
+        [
+         41.39,
+         30.74
+        ],
+        [
+         44.38,
+         28.75
+        ],
+        [
+         49.55,
+         36.6
+        ],
+        [
+         59.07,
+         30.32
+        ],
+        [
+         46.63,
+         11.49
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "keepHeuristic": [],
+   "notes": {},
+   "excluded": [],
+   "unmapped": [
+    "Headworks, grit, UV and Plant A tanks have no OSM polygons; several buildings visible in the ortho are unmapped."
+   ],
+   "conflicts": [
+    "Role of the three circles (primary vs secondary) is not confirmed by a public site plan."
+   ]
+  },
+  "hamilton-woodward": {
+   "plantWay": "way/778404147",
+   "plantWayUrl": "https://www.openstreetmap.org/way/778404147",
+   "units": {
+    "aeration": {
+     "shape": "basin",
+     "basis": "SOURCE",
+     "note": "Two largest OSM water=basin outlines (\u224818,000 m\u00b2 each) \u2014 North and expanded South Plant aeration (South expanded 22,000 \u2192 41,100 m\u00b3, plug flow).",
+     "sources": [
+      "https://www.openstreetmap.org/way/76979583",
+      "https://www.openstreetmap.org/way/76979275",
+      "https://nacsworld.com/project/woodward-ave-wastewater-treatment-plant",
+      "https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems"
+     ],
+     "osm": [
+      {
+       "way": "way/76979583",
+       "url": "https://www.openstreetmap.org/way/76979583",
+       "areaM2": 18515,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         -189.67,
+         270.84
+        ],
+        [
+         -112.74,
+         295.64
+        ],
+        [
+         -87.48,
+         214.81
+        ],
+        [
+         -41.95,
+         76.22
+        ],
+        [
+         -118.07,
+         50.77
+        ]
+       ]
+      },
+      {
+       "way": "way/76979275",
+       "url": "https://www.openstreetmap.org/way/76979275",
+       "areaM2": 17899,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         70.11,
+         244.41
+        ],
+        [
+         76.99,
+         222.9
+        ],
+        [
+         89.19,
+         184.74
+        ],
+        [
+         100.22,
+         150.23
+        ],
+        [
+         111.85,
+         113.86
+        ],
+        [
+         118.37,
+         93.44
+        ],
+        [
+         61.35,
+         75.22
+        ],
+        [
+         10.81,
+         59.06
+        ],
+        [
+         4.28,
+         79.48
+        ],
+        [
+         -7.65,
+         116.77
+        ],
+        [
+         -19.26,
+         153.14
+        ],
+        [
+         -31.17,
+         190.37
+        ],
+        [
+         -37.45,
+         210.03
+        ],
+        [
+         13.58,
+         226.35
+        ]
+       ]
+      }
+     ]
+    },
+    "primary": {
+     "shape": "basin",
+     "basis": "ESTIMATE",
+     "note": "Two \u22485,400 m\u00b2 OSM basins north of aeration \u2014 taken as the primary (CEPT) tanks.",
+     "sources": [
+      "https://www.openstreetmap.org/way/97928034",
+      "https://www.openstreetmap.org/way/76979283",
+      "https://www.hamilton.ca/sites/default/files/2023-02/wastewater-treatment-diagram-water-treatment-process-v2.pdf",
+      "https://nacsworld.com/project/woodward-ave-wastewater-treatment-plant"
+     ],
+     "osm": [
+      {
+       "way": "way/97928034",
+       "url": "https://www.openstreetmap.org/way/97928034",
+       "areaM2": 5489,
+       "tags": {
+        "natural": "water",
+        "source": "NRCan-CanVec-7.0",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         125.21,
+         369.95
+        ],
+        [
+         148.62,
+         294.81
+        ],
+        [
+         82.03,
+         274.07
+        ],
+        [
+         58.62,
+         349.2
+        ]
+       ]
+      },
+      {
+       "way": "way/76979283",
+       "url": "https://www.openstreetmap.org/way/76979283",
+       "areaM2": 5434,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         -3.12,
+         327.92
+        ],
+        [
+         7.99,
+         290.43
+        ],
+        [
+         20.06,
+         253.2
+        ],
+        [
+         -11.38,
+         242.48
+        ],
+        [
+         -46.6,
+         230.83
+        ],
+        [
+         -58.18,
+         270.21
+        ],
+        [
+         -68.12,
+         306.96
+        ],
+        [
+         -34.56,
+         317.2
+        ]
+       ]
+      }
+     ]
+    },
+    "secondary": {
+     "shape": "basin",
+     "basis": "SOURCE",
+     "note": "Eight \u22481,267 m\u00b2 rectangular OSM basins. NACS: South Plant clarifiers expanded to six chain-and-flight units, 7,290 m\u00b2 total (1,215 m\u00b2 each) \u2014 matches tank size.",
+     "sources": [
+      "https://www.openstreetmap.org/way/446684235",
+      "https://www.openstreetmap.org/way/446684236",
+      "https://www.openstreetmap.org/way/446684237",
+      "https://www.openstreetmap.org/way/446684238",
+      "https://www.openstreetmap.org/way/446684239",
+      "https://www.openstreetmap.org/way/446684240",
+      "https://www.openstreetmap.org/way/446684241",
+      "https://www.openstreetmap.org/way/446684242",
+      "https://nacsworld.com/project/woodward-ave-wastewater-treatment-plant"
+     ],
+     "osm": [
+      {
+       "way": "way/446684235",
+       "url": "https://www.openstreetmap.org/way/446684235",
+       "areaM2": 1275,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         92.68,
+         207.42
+        ],
+        [
+         126.86,
+         218.87
+        ],
+        [
+         138.1,
+         185.33
+        ],
+        [
+         103.91,
+         173.87
+        ]
+       ]
+      },
+      {
+       "way": "way/446684236",
+       "url": "https://www.openstreetmap.org/way/446684236",
+       "areaM2": 1323,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         122.48,
+         260.21
+        ],
+        [
+         156.66,
+         271.67
+        ],
+        [
+         168.32,
+         236.86
+        ],
+        [
+         134.14,
+         225.41
+        ]
+       ]
+      },
+      {
+       "way": "way/446684237",
+       "url": "https://www.openstreetmap.org/way/446684237",
+       "areaM2": 1276,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         80.28,
+         245.81
+        ],
+        [
+         114.47,
+         257.25
+        ],
+        [
+         125.7,
+         223.71
+        ],
+        [
+         91.51,
+         212.25
+        ]
+       ]
+      },
+      {
+       "way": "way/446684238",
+       "url": "https://www.openstreetmap.org/way/446684238",
+       "areaM2": 1275,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         104.53,
+         170.44
+        ],
+        [
+         138.72,
+         181.9
+        ],
+        [
+         149.95,
+         148.36
+        ],
+        [
+         115.76,
+         136.9
+        ]
+       ]
+      },
+      {
+       "way": "way/446684239",
+       "url": "https://www.openstreetmap.org/way/446684239",
+       "areaM2": 1275,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         159.98,
+         146.42
+        ],
+        [
+         194.17,
+         157.86
+        ],
+        [
+         205.4,
+         124.32
+        ],
+        [
+         171.22,
+         112.87
+        ]
+       ]
+      },
+      {
+       "way": "way/446684240",
+       "url": "https://www.openstreetmap.org/way/446684240",
+       "areaM2": 1275,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         135.42,
+         222.18
+        ],
+        [
+         169.6,
+         233.64
+        ],
+        [
+         180.84,
+         200.09
+        ],
+        [
+         146.65,
+         188.64
+        ]
+       ]
+      },
+      {
+       "way": "way/446684241",
+       "url": "https://www.openstreetmap.org/way/446684241",
+       "areaM2": 1275,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         117.04,
+         132.6
+        ],
+        [
+         151.22,
+         144.06
+        ],
+        [
+         162.46,
+         110.51
+        ],
+        [
+         128.27,
+         99.06
+        ]
+       ]
+      },
+      {
+       "way": "way/446684242",
+       "url": "https://www.openstreetmap.org/way/446684242",
+       "areaM2": 1275,
+       "tags": {
+        "natural": "water",
+        "water": "basin"
+       },
+       "ring": [
+        [
+         147.91,
+         184.8
+        ],
+        [
+         182.1,
+         196.25
+        ],
+        [
+         193.33,
+         162.71
+        ],
+        [
+         159.15,
+         151.26
+        ]
+       ]
+      }
+     ]
+    },
+    "digesters": {
+     "shape": "building",
+     "height": 10,
+     "basis": "ESTIMATE",
+     "note": "Two lobed OSM building outlines (3,953 m\u00b2 each) shaped like paired round tanks \u2014 taken as the digester complex (City: three primary + one secondary digester).",
+     "sources": [
+      "https://www.openstreetmap.org/way/257716585",
+      "https://www.openstreetmap.org/way/257716586",
+      "https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems"
+     ],
+     "osm": [
+      {
+       "way": "way/257716585",
+       "url": "https://www.openstreetmap.org/way/257716585",
+       "areaM2": 3980,
+       "tags": {
+        "building": "service"
+       },
+       "ring": [
+        [
+         105.72,
+         -87.13
+        ],
+        [
+         100.43,
+         -91.25
+        ],
+        [
+         97.37,
+         -80.7
+        ],
+        [
+         102.69,
+         -80.09
+        ],
+        [
+         107.53,
+         -77.82
+        ],
+        [
+         111.39,
+         -74.13
+        ],
+        [
+         113.89,
+         -69.4
+        ],
+        [
+         114.72,
+         -63.78
+        ],
+        [
+         113.58,
+         -58.21
+        ],
+        [
+         110.62,
+         -53.37
+        ],
+        [
+         106.18,
+         -49.82
+        ],
+        [
+         100.8,
+         -47.99
+        ],
+        [
+         95.12,
+         -48.11
+        ],
+        [
+         89.82,
+         -50.17
+        ],
+        [
+         85.54,
+         -53.9
+        ],
+        [
+         82.78,
+         -58.88
+        ],
+        [
+         81.89,
+         -64.49
+        ],
+        [
+         82.97,
+         -70.06
+        ],
+        [
+         85.88,
+         -74.95
+        ],
+        [
+         76.03,
+         -77.41
+        ],
+        [
+         75.16,
+         -71.86
+        ],
+        [
+         72.48,
+         -66.91
+        ],
+        [
+         68.31,
+         -63.15
+        ],
+        [
+         63.11,
+         -61.0
+        ],
+        [
+         57.49,
+         -60.73
+        ],
+        [
+         52.11,
+         -62.33
+        ],
+        [
+         47.58,
+         -65.66
+        ],
+        [
+         44.41,
+         -70.3
+        ],
+        [
+         42.99,
+         -75.74
+        ],
+        [
+         43.47,
+         -81.34
+        ],
+        [
+         45.79,
+         -86.46
+        ],
+        [
+         49.7,
+         -90.5
+        ],
+        [
+         54.74,
+         -93.01
+        ],
+        [
+         60.31,
+         -93.69
+        ],
+        [
+         65.8,
+         -92.45
+        ],
+        [
+         70.56,
+         -89.45
+        ],
+        [
+         73.43,
+         -99.44
+        ],
+        [
+         67.81,
+         -100.0
+        ],
+        [
+         62.7,
+         -102.41
+        ],
+        [
+         58.68,
+         -106.39
+        ],
+        [
+         56.24,
+         -111.48
+        ],
+        [
+         55.62,
+         -117.1
+        ],
+        [
+         56.92,
+         -122.6
+        ],
+        [
+         59.99,
+         -127.34
+        ],
+        [
+         64.47,
+         -130.79
+        ],
+        [
+         69.84,
+         -132.55
+        ],
+        [
+         75.48,
+         -132.4
+        ],
+        [
+         80.76,
+         -130.39
+        ],
+        [
+         85.07,
+         -126.73
+        ],
+        [
+         87.89,
+         -121.83
+        ],
+        [
+         88.92,
+         -116.27
+        ],
+        [
+         88.03,
+         -110.7
+        ],
+        [
+         85.33,
+         -105.73
+        ],
+        [
+         95.32,
+         -102.45
+        ],
+        [
+         96.27,
+         -107.9
+        ],
+        [
+         98.98,
+         -112.73
+        ],
+        [
+         103.14,
+         -116.39
+        ],
+        [
+         108.29,
+         -118.44
+        ],
+        [
+         113.82,
+         -118.68
+        ],
+        [
+         119.11,
+         -117.06
+        ],
+        [
+         123.57,
+         -113.78
+        ],
+        [
+         126.68,
+         -109.19
+        ],
+        [
+         128.1,
+         -103.84
+        ],
+        [
+         127.64,
+         -98.32
+        ],
+        [
+         125.38,
+         -93.26
+        ],
+        [
+         121.56,
+         -89.25
+        ],
+        [
+         116.63,
+         -86.73
+        ],
+        [
+         111.14,
+         -85.99
+        ]
+       ]
+      },
+      {
+       "way": "way/257716586",
+       "url": "https://www.openstreetmap.org/way/257716586",
+       "areaM2": 3981,
+       "tags": {
+        "building": "service"
+       },
+       "ring": [
+        [
+         77.12,
+         -0.22
+        ],
+        [
+         71.73,
+         -4.21
+        ],
+        [
+         68.94,
+         6.42
+        ],
+        [
+         74.27,
+         6.89
+        ],
+        [
+         79.16,
+         9.03
+        ],
+        [
+         83.13,
+         12.62
+        ],
+        [
+         85.74,
+         17.29
+        ],
+        [
+         86.71,
+         22.89
+        ],
+        [
+         85.72,
+         28.49
+        ],
+        [
+         82.88,
+         33.41
+        ],
+        [
+         78.52,
+         37.07
+        ],
+        [
+         73.19,
+         39.02
+        ],
+        [
+         67.51,
+         39.04
+        ],
+        [
+         62.16,
+         37.13
+        ],
+        [
+         57.78,
+         33.5
+        ],
+        [
+         54.91,
+         28.6
+        ],
+        [
+         53.88,
+         23.01
+        ],
+        [
+         54.81,
+         17.4
+        ],
+        [
+         57.6,
+         12.45
+        ],
+        [
+         47.69,
+         10.24
+        ],
+        [
+         46.96,
+         15.81
+        ],
+        [
+         44.41,
+         20.82
+        ],
+        [
+         40.33,
+         24.69
+        ],
+        [
+         35.19,
+         26.96
+        ],
+        [
+         29.58,
+         27.4
+        ],
+        [
+         24.15,
+         25.92
+        ],
+        [
+         19.54,
+         22.71
+        ],
+        [
+         16.26,
+         18.13
+        ],
+        [
+         14.7,
+         12.74
+        ],
+        [
+         15.04,
+         7.12
+        ],
+        [
+         17.24,
+         1.95
+        ],
+        [
+         21.04,
+         -2.19
+        ],
+        [
+         26.01,
+         -4.82
+        ],
+        [
+         31.57,
+         -5.63
+        ],
+        [
+         37.09,
+         -4.54
+        ],
+        [
+         41.92,
+         -1.66
+        ],
+        [
+         44.54,
+         -11.71
+        ],
+        [
+         38.9,
+         -12.13
+        ],
+        [
+         33.73,
+         -14.42
+        ],
+        [
+         29.62,
+         -18.29
+        ],
+        [
+         27.04,
+         -23.32
+        ],
+        [
+         26.29,
+         -28.92
+        ],
+        [
+         27.45,
+         -34.45
+        ],
+        [
+         30.4,
+         -39.27
+        ],
+        [
+         34.79,
+         -42.84
+        ],
+        [
+         40.11,
+         -44.73
+        ],
+        [
+         45.76,
+         -44.73
+        ],
+        [
+         51.09,
+         -42.85
+        ],
+        [
+         55.48,
+         -39.28
+        ],
+        [
+         58.42,
+         -34.46
+        ],
+        [
+         59.6,
+         -28.93
+        ],
+        [
+         58.85,
+         -23.33
+        ],
+        [
+         56.28,
+         -18.3
+        ],
+        [
+         66.35,
+         -15.27
+        ],
+        [
+         67.16,
+         -20.75
+        ],
+        [
+         69.74,
+         -25.65
+        ],
+        [
+         73.81,
+         -29.41
+        ],
+        [
+         78.91,
+         -31.6
+        ],
+        [
+         84.43,
+         -31.97
+        ],
+        [
+         89.76,
+         -30.49
+        ],
+        [
+         94.3,
+         -27.31
+        ],
+        [
+         97.53,
+         -22.81
+        ],
+        [
+         99.07,
+         -17.49
+        ],
+        [
+         98.75,
+         -11.96
+        ],
+        [
+         96.62,
+         -6.85
+        ],
+        [
+         92.91,
+         -2.74
+        ],
+        [
+         88.04,
+         -0.1
+        ],
+        [
+         82.57,
+         0.78
+        ]
+       ]
+      }
+     ]
+    },
+    "tertiary": {
+     "shape": "building",
+     "height": 9,
+     "basis": "ESTIMATE",
+     "note": "Largest OSM building on site (6,279 m\u00b2, building=service) \u2014 taken as the Tertiary Treatment Facility (10 disk-filter trains, 63 MLD each).",
+     "sources": [
+      "https://www.openstreetmap.org/way/43940787",
+      "https://nacsworld.com/project/woodward-ave-wastewater-treatment-plant"
+     ],
+     "osm": [
+      {
+       "way": "way/43940787",
+       "url": "https://www.openstreetmap.org/way/43940787",
+       "areaM2": 6323,
+       "tags": {
+        "building": "service",
+        "source": "CanVec_Import_2009"
+       },
+       "ring": [
+        [
+         231.97,
+         -255.68
+        ],
+        [
+         82.82,
+         -301.27
+        ],
+        [
+         94.17,
+         -339.69
+        ],
+        [
+         243.55,
+         -295.05
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "keepHeuristic": [],
+   "notes": {},
+   "excluded": [
+    {
+     "way": "way/43936913",
+     "reason": "OSM water=reservoir inside the WWTP fence \u2014 not a process tank (v0.3.15 counted it as aeration, stretching the basin group to ~900 m)."
+    },
+    {
+     "way": "way/149025723",
+     "reason": "OSM water=river (Red Hill Creek) crosses the WWTP outline \u2014 not a process tank."
+    }
+   ],
+   "unmapped": [
+    "New chlorine contact tank (\u224810,420 m\u00b3) and headworks have no OSM polygon."
+   ],
+   "conflicts": [
+    "OSM shows 8 rectangular clarifier-sized basins; NACS describes 6 South Plant clarifiers \u2014 the other 2 may belong to the North Plant."
+   ]
+  },
+  "toronto-ashbridges-bay": {
+   "plantWay": "way/265096981",
+   "plantWayUrl": "https://www.openstreetmap.org/way/265096981",
+   "units": {
+    "primary": {
+     "shape": "basin",
+     "basis": "ESTIMATE",
+     "note": "Three identical CanVec-sourced wastewater outlines (2,734 m\u00b2) \u2014 v0.3.15 split them 2 primary / 1 aeration; now treated alike as primary tanks.",
+     "sources": [
+      "https://www.openstreetmap.org/way/69341277",
+      "https://www.openstreetmap.org/way/1116992826",
+      "https://www.openstreetmap.org/way/1116992827",
+      "https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/",
+      "https://www.toronto.ca/wp-content/uploads/2026/06/9914-2025-TAB-Annual-Report-Final-AODA.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/69341277",
+       "url": "https://www.openstreetmap.org/way/69341277",
+       "areaM2": 2753,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         191.3,
+         -157.62
+        ],
+        [
+         217.78,
+         -176.83
+        ],
+        [
+         168.32,
+         -244.96
+        ],
+        [
+         141.86,
+         -225.76
+        ]
+       ]
+      },
+      {
+       "way": "way/1116992826",
+       "url": "https://www.openstreetmap.org/way/1116992826",
+       "areaM2": 2753,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         220.23,
+         -179.25
+        ],
+        [
+         246.71,
+         -198.46
+        ],
+        [
+         197.25,
+         -266.59
+        ],
+        [
+         170.8,
+         -247.39
+        ]
+       ]
+      },
+      {
+       "way": "way/1116992827",
+       "url": "https://www.openstreetmap.org/way/1116992827",
+       "areaM2": 2754,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         254.28,
+         -203.64
+        ],
+        [
+         280.76,
+         -222.85
+        ],
+        [
+         231.31,
+         -290.98
+        ],
+        [
+         204.84,
+         -271.77
+        ]
+       ]
+      }
+     ]
+    },
+    "aeration": {
+     "shape": "basin",
+     "basis": "ESTIMATE",
+     "note": "Two large CanVec wastewater outlines (\u224837,000\u201339,000 m\u00b2) \u2014 the aeration/secondary complexes.",
+     "sources": [
+      "https://www.openstreetmap.org/way/69341280",
+      "https://www.openstreetmap.org/way/69341278",
+      "https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/",
+      "https://www.toronto.ca/wp-content/uploads/2026/06/9914-2025-TAB-Annual-Report-Final-AODA.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/69341280",
+       "url": "https://www.openstreetmap.org/way/69341280",
+       "areaM2": 38877,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         17.98,
+         58.91
+        ],
+        [
+         -30.78,
+         -7.17
+        ],
+        [
+         -60.08,
+         -46.88
+        ],
+        [
+         -181.73,
+         42.89
+        ],
+        [
+         -191.79,
+         50.32
+        ],
+        [
+         -298.02,
+         128.71
+        ],
+        [
+         -219.96,
+         234.5
+        ],
+        [
+         -17.66,
+         85.2
+        ]
+       ]
+      },
+      {
+       "way": "way/69341278",
+       "url": "https://www.openstreetmap.org/way/69341278",
+       "areaM2": 37019,
+       "tags": {
+        "natural": "water",
+        "source": "CanVec 6.0 - NRCan",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         -140.89,
+         -29.73
+        ],
+        [
+         -143.91,
+         -33.57
+        ],
+        [
+         -132.35,
+         -43.73
+        ],
+        [
+         -128.53,
+         -38.47
+        ],
+        [
+         -101.12,
+         -60.05
+        ],
+        [
+         -102.53,
+         -66.46
+        ],
+        [
+         -90.93,
+         -72.6
+        ],
+        [
+         -86.68,
+         -69.52
+        ],
+        [
+         -78.63,
+         -77.57
+        ],
+        [
+         -162.61,
+         -199.65
+        ],
+        [
+         -364.99,
+         -54.03
+        ],
+        [
+         -280.05,
+         64.24
+        ],
+        [
+         -267.03,
+         56.44
+        ],
+        [
+         -263.26,
+         61.4
+        ],
+        [
+         -233.67,
+         39.64
+        ],
+        [
+         -234.84,
+         32.28
+        ],
+        [
+         -224.43,
+         26.84
+        ],
+        [
+         -221.37,
+         30.65
+        ],
+        [
+         -212.52,
+         23.88
+        ],
+        [
+         -215.91,
+         16.89
+        ],
+        [
+         -207.13,
+         10.17
+        ],
+        [
+         -201.72,
+         16.44
+        ],
+        [
+         -183.02,
+         1.99
+        ],
+        [
+         -185.61,
+         -3.71
+        ],
+        [
+         -173.78,
+         -10.81
+        ],
+        [
+         -168.58,
+         -7.48
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "keepHeuristic": [
+    "digesters"
+   ],
+   "notes": {
+    "digesters": "OSM man_made=storage_tank rings (OSM-TAGGED role is generic storage tank; digester use per City facility page)."
+   },
+   "excluded": [],
+   "unmapped": [
+    "Secondary clarifiers are not mapped separately in OSM."
+   ],
+   "conflicts": [
+    "The geo bake picked a 1,910 m\u00b2 water polygon at (\u2212316, \u2212241) as a primary; live OSM puts it outside the WWTP outline, so it is dropped."
+   ]
+  },
+  "st-jacobs": {
+   "plantWay": "way/816956510",
+   "plantWayUrl": "https://www.openstreetmap.org/way/816956510",
+   "units": {
+    "primary": {
+     "shape": "basin",
+     "label": "Oxidation Ditch",
+     "basis": "SOURCE",
+     "note": "Racetrack-shaped OSM water=wastewater outline (980 m\u00b2) \u2014 the oxidation ditch named in the Master Plan.",
+     "sources": [
+      "https://www.openstreetmap.org/way/816956511",
+      "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf",
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/816956511",
+       "url": "https://www.openstreetmap.org/way/816956511",
+       "areaM2": 987,
+       "tags": {
+        "natural": "water",
+        "water": "wastewater"
+       },
+       "ring": [
+        [
+         27.62,
+         19.98
+        ],
+        [
+         23.95,
+         19.79
+        ],
+        [
+         20.52,
+         18.47
+        ],
+        [
+         17.68,
+         16.12
+        ],
+        [
+         15.72,
+         13.0
+        ],
+        [
+         14.91,
+         9.22
+        ],
+        [
+         17.66,
+         -16.01
+        ],
+        [
+         17.95,
+         -19.67
+        ],
+        [
+         19.51,
+         -23.3
+        ],
+        [
+         22.21,
+         -26.18
+        ],
+        [
+         25.72,
+         -27.99
+        ],
+        [
+         29.63,
+         -28.51
+        ],
+        [
+         33.49,
+         -27.69
+        ],
+        [
+         36.85,
+         -25.61
+        ],
+        [
+         39.32,
+         -22.53
+        ],
+        [
+         40.6,
+         -18.8
+        ],
+        [
+         40.56,
+         -14.86
+        ],
+        [
+         36.99,
+         11.19
+        ],
+        [
+         36.12,
+         14.24
+        ],
+        [
+         34.23,
+         16.95
+        ],
+        [
+         31.17,
+         19.0
+        ]
+       ]
+      }
+     ]
+    },
+    "secondary": {
+     "synthetic": {
+      "circles": [
+       [
+        56.0,
+        8.0,
+        6.5
+       ],
+       [
+        56.0,
+        -8.0,
+        6.5
+       ]
+      ]
+     },
+     "shape": "cyl",
+     "basis": "ESTIMATE",
+     "note": "Secondary clarifiers are not mapped in OSM; two r=6.5 m tanks (sized for ~1.45 MLD at ~20 m\u00b3/m\u00b2\u00b7d) placed on open grass east of the ditch (ortho cross-check). Geometry and position are ESTIMATE.",
+     "sources": [
+      "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf"
+     ],
+     "osm": []
+    },
+    "headworks": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "478 m\u00b2 OSM building at the site entrance \u2014 taken as the headworks/control building.",
+     "sources": [
+      "https://www.openstreetmap.org/way/506577993",
+      "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/506577993",
+       "url": "https://www.openstreetmap.org/way/506577993",
+       "areaM2": 481,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         -23.51,
+         7.21
+        ],
+        [
+         3.77,
+         10.45
+        ],
+        [
+         1.69,
+         27.86
+        ],
+        [
+         -25.58,
+         24.61
+        ]
+       ]
+      }
+     ]
+    },
+    "tertiary": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "558 m\u00b2 OSM building \u2014 taken as the tertiary filter + UV building.",
+     "sources": [
+      "https://www.openstreetmap.org/way/506577992",
+      "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/506577992",
+       "url": "https://www.openstreetmap.org/way/506577992",
+       "areaM2": 562,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         -26.32,
+         -19.41
+        ],
+        [
+         11.13,
+         -15.52
+        ],
+        [
+         9.58,
+         -0.67
+        ],
+        [
+         -27.87,
+         -4.56
+        ]
+       ]
+      }
+     ]
+    },
+    "solids": {
+     "shape": "building",
+     "basis": "ESTIMATE",
+     "note": "66 m\u00b2 OSM building \u2014 aerated sludge holding blower/control kiosk.",
+     "sources": [
+      "https://www.openstreetmap.org/way/506577994",
+      "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf"
+     ],
+     "osm": [
+      {
+       "way": "way/506577994",
+       "url": "https://www.openstreetmap.org/way/506577994",
+       "areaM2": 67,
+       "tags": {
+        "building": "yes"
+       },
+       "ring": [
+        [
+         10.05,
+         29.93
+        ],
+        [
+         18.92,
+         31.01
+        ],
+        [
+         18.02,
+         38.41
+        ],
+        [
+         9.14,
+         37.31
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "keepHeuristic": [],
+   "notes": {},
+   "excluded": [],
+   "unmapped": [
+    "Aerated sludge holding tank and UV channel have no OSM polygon."
+   ],
+   "conflicts": []
+  }
+ },
+ "osmBase": "2026-11-20T21:15:19Z",
+ "overpass": "nigian local Overpass"
+}

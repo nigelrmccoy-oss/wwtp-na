@@ -7,6 +7,35 @@
  * v0.3.10: asphalt = process yard only; siteBounds = full WWTP; true OSM basins.
  */
 import type { GeoFeature, PlantGeoPack } from './osmBake';
+import footprintRegistry from '../data/footprints.json';
+
+/** v0.3.16 footprint registry (scripts/footprint-roles.json → scripts/bakeFootprints.py). */
+export type FootprintBasis = 'OSM-TAGGED' | 'SOURCE' | 'ESTIMATE';
+export interface RegistryUnit {
+  shape: 'cyl' | 'basin' | 'lanes' | 'building';
+  basis: FootprintBasis;
+  note: string;
+  label?: string;
+  lanes?: number;
+  height?: number;
+  synthetic?: { circles: number[][] };
+  sources: string[];
+  osm: { way: string; url: string; areaM2: number; ring: number[][] }[];
+}
+export interface RegistryPlant {
+  plantWay: string;
+  plantWayUrl: string;
+  units: Record<string, RegistryUnit>;
+  keepHeuristic: string[];
+  notes: Record<string, string>;
+  excluded: { way: string; reason: string }[];
+  unmapped: string[];
+  conflicts: string[];
+}
+const REGISTRY = (footprintRegistry as unknown as { plants: Record<string, RegistryPlant> }).plants;
+export function footprintRegistryFor(plantId: string): RegistryPlant | null {
+  return REGISTRY[plantId] ?? null;
+}
 
 export interface FootprintRing {
   ring: number[][];
@@ -40,6 +69,14 @@ export interface GisUnitSnap {
    */
   estimated?: boolean;
   estimateNote?: string;
+  /**
+   * v0.3.16: footprint provenance for HoverTip — OSM way(s), basis (OSM-TAGGED / SOURCE /
+   * ESTIMATE) and the public document that places the unit.
+   */
+  sourceNote?: string;
+  /** Footprints are real building outlines → extrude as a roofed building (not an open tank). */
+  building?: boolean;
+  buildingHeightM?: number;
   /** Real footprint size hints (metres). */
   radiusM?: number;
   widthM?: number;
@@ -249,17 +286,6 @@ function isDenied(plantId: string, cx: number, cz: number): boolean {
   if (!list) return false;
   return list.some((d) => Math.hypot(cx - d.cx, cz - d.cz) <= (d.tol ?? 15));
 }
-
-function aabbOfRing(fp: FootprintRing, margin = 0): { minX: number; maxX: number; minZ: number; maxZ: number } {
-  const b = bbox(fp.ring);
-  return {
-    minX: b.minX - margin,
-    maxX: b.maxX + margin,
-    minZ: b.minZ - margin,
-    maxZ: b.maxZ + margin,
-  };
-}
-
 
 function makeRectBasin(cx: number, cz: number, hw: number, hd: number, yaw: number): FootprintRing {
   const cos = Math.cos(yaw);
@@ -509,93 +535,6 @@ function placeClearBox(
 }
 
 /**
- * Hand rectangular primary clarifiers for Kitchener (OSM only maps circular tanks).
- * v0.3.12: search clear ground INSIDE the plant fence near the aeration train, collision-checked
- * against mapped buildings, roads/paths, OSM process footprints and the fence line (v0.3.11
- * pushed the bank west until it cleared aeration, which left it straddling the SW fence/road).
- */
-function kitchenerRectPrimaries(
-  site: { cx: number; cz: number },
-  aerationFs: FootprintRing[],
-  obs: SiteObstacles,
-  count = 4,
-): FootprintRing[] {
-  const hw = 22.5;
-  const hd = 9;
-  const spacing = 22;
-  // Keep well inside the fence: the plant polygon edge is tree-lined in the imagery (35 m is
-  // the most the SE yard allows; no other open ground on site fits a 4-tank bank).
-  const FENCE_M = 35;
-  const yaw0 = aerationFs.length ? meanYaw(aerationFs) : 0;
-  const aerBoxes = aerationFs.map((f) => aabbOfRing(f));
-  const aerC = aerationFs.length ? centroidOf(aerationFs) : { x: site.cx, z: site.cz };
-  const bankAt = (bx: number, bz: number, yaw: number): FootprintRing[] => {
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
-    return Array.from({ length: count }, (_, i) => {
-      const along = (i - (count - 1) / 2) * spacing;
-      return makeRectBasin(bx - sin * along, bz + cos * along, hw, hd, yaw);
-    });
-  };
-  const distToAer = (x: number, z: number): number =>
-    aerBoxes.length
-      ? Math.min(
-          ...aerBoxes.map((b) => Math.hypot(Math.max(b.minX - x, 0, x - b.maxX), Math.max(b.minZ - z, 0, z - b.maxZ))),
-        )
-      : Math.hypot(x - site.cx, z - site.cz);
-  const fence = obs.fence;
-  const fenceDist = (x: number, z: number): number => {
-    if (!fence) return 1e9;
-    let m = Infinity;
-    for (let i = 0; i < fence.length - 1; i++) {
-      const [ax, az] = fence[i];
-      const [bx, bz] = fence[i + 1];
-      const vx = bx - ax;
-      const vz = bz - az;
-      const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / Math.max(vx * vx + vz * vz, 1e-9)));
-      m = Math.min(m, Math.hypot(x - (ax + vx * t), z - (az + vz * t)));
-    }
-    return m;
-  };
-  // Aeration-aligned first, then every 15° (lets the bank run along a yard edge).
-  const yaws = [yaw0, yaw0 + Math.PI / 2, ...Array.from({ length: 12 }, (_, k) => (k * Math.PI) / 12)];
-  // Score every candidate cheaply, then collision-test best-first: the first clear one wins.
-  const cands: { bx: number; bz: number; yaw: number; score: number }[] = [];
-  for (let dx = -260; dx <= 260; dx += 6) {
-    for (let dz = -260; dz <= 260; dz += 6) {
-      const bx = aerC.x + dx;
-      const bz = aerC.z + dz;
-      const d = distToAer(bx, bz);
-      if (d > 160) continue;
-      if (fence && !pointInRing(bx, bz, fence)) continue;
-      // Upstream of aeration (flow runs headworks → primaries → aeration → secondaries, W→E)
-      // and away from the fence line (the yard edge is tree-lined in the imagery).
-      const base = d + Math.max(0, bx - aerC.x) * 0.6 + Math.max(0, 70 - fenceDist(bx, bz)) * 1.2;
-      yaws.forEach((yaw, k) => cands.push({ bx, bz, yaw, score: base + (k < 2 ? 0 : 0.5) }));
-    }
-  }
-  cands.sort((a, b) => a.score - b.score);
-  let best: { fs: FootprintRing[] } | null = null;
-  // Any bank orientation covers its central ±9 m square, so a blocked centre rules out all yaws.
-  const coreOk = new Map<string, boolean>();
-  for (const c of cands) {
-    const key = `${c.bx},${c.bz}`;
-    let ok = coreOk.get(key);
-    if (ok === undefined) coreOk.set(key, (ok = obs.rectClear(c.bx, c.bz, 9, 9, 0, 6, FENCE_M, 4)));
-    if (!ok) continue;
-    const fs = bankAt(c.bx, c.bz, c.yaw);
-    if (fs.every((f) => obs.rectClear(f.cx, f.cz, hw, hd, c.yaw, 6, FENCE_M, 4))) {
-      best = { fs };
-      break;
-    }
-  }
-  if (best) return best.fs;
-  // Last resort (no clear ground found): legacy west-of-aeration bank, still (est.).
-  const westEdge = aerBoxes.length ? Math.min(...aerBoxes.map((b) => b.minX)) : site.cx - 160;
-  return bankAt(westEdge - 28 - hw, aerC.z, yaw0);
-}
-
-/**
  * Build GIS-snapped unit placements for a plant. Returns used=false when the
  * bake lacks enough on-site water footprints (caller falls back to schematic).
  */
@@ -724,22 +663,19 @@ export function buildGisLayout(
   }
 
   // Need a meaningful set — Waterloo/Kitchener have 4+ circular + basins
-  if (clarifiers.length + basins.length < 2) {
+  const reg = footprintRegistryFor(plantId);
+  if (clarifiers.length + basins.length < 2 && !reg) {
     return { ...empty, waterMasks, summary: 'schematic (sparse water footprints)' };
   }
 
   const snaps: GisUnitSnap[] = [];
 
   // Split clarifiers into primary (smaller) vs secondary (larger) when both exist.
-  // Kitchener: research primaries are rectangular — do not promote circular OSM tanks.
+  // v0.3.16: Kitchener's rectangular primaries come from the footprint registry (EA Fig. 2-1),
+  // replacing the v0.3.12 synthetic 45×18 m bank.
   let primaryFs: FootprintRing[] = [];
   let secondaryFs: FootprintRing[] = [];
-  const kitRectPrimary = plantId === 'kitchener' && counts.hasPrimary;
-  if (kitRectPrimary) {
-    secondaryFs = [...clarifiers]
-      .sort((a, b) => b.area - a.area)
-      .slice(0, counts.secondary || clarifiers.length);
-  } else if (counts.hasPrimary && clarifiers.length >= 2) {
+  if (counts.hasPrimary && clarifiers.length >= 2) {
     const mid = Math.ceil(clarifiers.length / 2);
     // Prefer smaller half as primary when size contrast is clear
     const sorted = [...clarifiers].sort((a, b) => a.area - b.area);
@@ -823,9 +759,6 @@ export function buildGisLayout(
   // v0.3.13: mapped digesters are obstacles too, so est. headworks/UV/solids keep their clearance from them.
   for (const f of digesterFs) obs.addRing(f.ring);
 
-  if (kitRectPrimary) {
-    primaryFs = kitchenerRectPrimaries({ cx: siteCx, cz: siteCz }, aerationFs.length ? aerationFs : basins, obs);
-  }
   for (const f of primaryFs) if (f.circularity < 0.7) obs.addRing(f.ring);
 
   if (primaryFs.length && counts.hasPrimary) {
@@ -843,13 +776,6 @@ export function buildGisLayout(
       widthM: rectPrimary ? Math.max(...primaryFs.map((f) => f.obbWidth)) : undefined,
       depthM: rectPrimary ? Math.max(...primaryFs.map((f) => f.obbDepth)) : undefined,
       footprints: primaryFs,
-      ...(kitRectPrimary
-        ? {
-            estimated: true,
-            estimateNote:
-              'Estimated placement, not from OSM — rectangular primaries are not mapped in OpenStreetMap; 45×18 m tanks set on clear ground inside the plant fence beside aeration (collision-checked against mapped buildings, roads and tanks).',
-          }
-        : {}),
     });
   }
 
@@ -934,6 +860,8 @@ export function buildGisLayout(
       footprints: unusedClar,
     });
   }
+
+  if (reg) applyRegistryTanks(snaps, reg, obs);
 
   // Full WWTP amenity bounds — grass/gravel/landuse context (NOT asphalt).
   const siteBounds = {
@@ -1089,6 +1017,8 @@ export function buildGisLayout(
     });
   }
 
+  if (reg) applyRegistryBuildings(snaps, reg);
+
   // Asphalt = process footprint AABB ∪ headworks/UV/solids + ~50 m margin.
   const asphaltPts: { x: number; z: number }[] = [];
   for (const s of snaps) {
@@ -1127,18 +1057,19 @@ export function buildGisLayout(
   // Outfall: prefer waterway tip near site, else east of disinfection
   let outfallHint: GisLayoutResult['outfallHint'] = null;
   if (waterwayTips.length) {
-    const tip = waterwayTips.sort(
-      (a, b) =>
-        Math.hypot(a.x - siteBounds.cx, a.z - siteBounds.cz) -
-        Math.hypot(b.x - siteBounds.cx, b.z - siteBounds.cz),
-    )[0];
+    // v0.3.16: anchor on the disinfection unit when known so the final-effluent pipe does not
+    // cut diagonally across the whole site (WAT drew a ~330 m line from UV to a west tip).
+    const dis0 = snaps.find((s) => s.id === 'disinfection');
+    const ax = dis0 ? dis0.x : siteBounds.cx;
+    const az = dis0 ? dis0.z : siteBounds.cz;
+    const tip = waterwayTips.sort((a, b) => Math.hypot(a.x - ax, a.z - az) - Math.hypot(b.x - ax, b.z - az))[0];
     outfallHint = { x: tip.x, z: tip.z, yaw: Math.atan2(tip.z - siteBounds.cz, tip.x - siteBounds.cx) };
   } else {
     const dis = snaps.find((s) => s.id === 'disinfection');
     if (dis) outfallHint = { x: dis.x + 40, z: dis.z, yaw: 0 };
   }
 
-  const chain = ['headworks', 'primary', 'aeration', 'secondary', 'disinfection']
+  const chain = ['headworks', 'primary', 'aeration', 'secondary', 'tertiary', 'disinfection']
     .map((id) => snaps.find((s) => s.id === id))
     .filter(Boolean)
     .map((s) => ({ x: s!.x, z: s!.z }));
@@ -1157,7 +1088,7 @@ export function buildGisLayout(
     let bestRoute: number[][] | null = null;
     let bestLen = Infinity;
     for (const tank of pr.footprints) {
-      const others = [...snaps.flatMap((s) => s.footprints).filter((f) => f !== tank).map((f) => f.ring), ...estRings];
+      const others = [...snaps.filter((s) => s !== hw).flatMap((s) => s.footprints).filter((f) => f !== tank).map((f) => f.ring), ...estRings];
       const hits = (a: number[], b: number[]) =>
         others.some((r) => pointInRing(a[0], a[1], r) || pointInRing(b[0], b[1], r) || r.some((p, i) => i > 0 && segsCross(r[i - 1], p, a, b)));
       const A = [hw.x, hw.z];
@@ -1233,4 +1164,171 @@ function placeDisinfection(
     }
   }
   return { x: fallback.x + 40, z: fallback.z, note: 'Estimated placement, not from OSM.' };
+}
+
+/** Footprint from an arbitrary ring (no classifier size gates — registry rings are authoritative). */
+function ringFootprint(open: number[][], kind: FootprintRing['kind']): FootprintRing {
+  // Geo helpers (centroid / area / perimeter / yaw) expect a closed GeoJSON-style ring.
+  const f = open[0];
+  const l = open[open.length - 1];
+  const ring = f[0] === l[0] && f[1] === l[1] ? open : [...open, f];
+  const area = polygonArea(ring);
+  const per = perimeter(ring);
+  const b = bbox(ring);
+  const c = centroid(ring);
+  const yaw = majorAxisYaw(ring);
+  const obb = orientedExtents(ring, yaw, c.x, c.z);
+  return {
+    ring,
+    cx: c.x,
+    cz: c.z,
+    area,
+    width: b.maxX - b.minX,
+    depth: b.maxZ - b.minZ,
+    obbWidth: obb.w,
+    obbDepth: obb.d,
+    circularity: per > 0 ? (4 * Math.PI * area) / (per * per) : 0,
+    yaw,
+    kind,
+  };
+}
+
+/** Split an OSM outline into n equal parallel lanes along its major axis (1 m common walls). */
+function laneFootprints(ring: number[][], n: number): FootprintRing[] {
+  const fp = ringFootprint(ring, 'basin');
+  // Minimum-area bounding rectangle over edge directions (covariance yaw skews on rings with
+  // uneven vertex spacing, e.g. KIT way/39457430 has two extra vertices on one wall).
+  const extents = (yaw: number) => {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    let minU = Infinity;
+    let maxU = -Infinity;
+    let minV = Infinity;
+    let maxV = -Infinity;
+    for (const [x, z] of ring) {
+      const dx = x - fp.cx;
+      const dz = z - fp.cz;
+      const u = dx * c + dz * s;
+      const v = -dx * s + dz * c;
+      minU = Math.min(minU, u);
+      maxU = Math.max(maxU, u);
+      minV = Math.min(minV, v);
+      maxV = Math.max(maxV, v);
+    }
+    return { minU, maxU, minV, maxV, area: (maxU - minU) * (maxV - minV) };
+  };
+  let yaw = fp.yaw;
+  let best = extents(yaw);
+  for (let i = 1; i < ring.length; i++) {
+    const y = Math.atan2(ring[i][1] - ring[i - 1][1], ring[i][0] - ring[i - 1][0]);
+    const e = extents(y);
+    if (e.area < best.area - 1e-6) {
+      best = e;
+      yaw = y;
+    }
+  }
+  // Lanes run along the long side.
+  if (best.maxV - best.minV > best.maxU - best.minU) {
+    yaw += Math.PI / 2;
+    best = extents(yaw);
+  }
+  const { minU, maxU, minV, maxV } = best;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const laneW = (maxV - minV) / n;
+  const out: FootprintRing[] = [];
+  for (let i = 0; i < n; i++) {
+    const uc = (minU + maxU) / 2;
+    const vc = minV + laneW * (i + 0.5);
+    const cx = fp.cx + cos * uc - sin * vc;
+    const cz = fp.cz + sin * uc + cos * vc;
+    out.push(makeRectBasin(cx, cz, (maxU - minU) / 2, laneW / 2 - 0.5, yaw));
+  }
+  return out;
+}
+
+const UNIT_LABELS: Record<string, string> = {
+  headworks: 'Headworks',
+  primary: 'Primary Clarifiers',
+  aeration: 'Aeration Basins',
+  secondary: 'Secondary Clarifiers',
+  tertiary: 'Tertiary Filters',
+  digesters: 'Anaerobic Digesters',
+  solids: 'Solids Handling',
+};
+const BUILDING_UNITS = new Set(['headworks', 'solids', 'disinfection']);
+
+function registrySourceNote(u: RegistryUnit): string {
+  const ways = u.osm.map((o) => o.way).join(', ');
+  const geom = u.synthetic ? 'geometry ESTIMATE (not mapped in OSM)' : `OSM ${ways} (ODbL)`;
+  return `Footprint: ${geom} · role ${u.basis} — ${u.note}`;
+}
+
+function registrySnap(id: string, u: RegistryUnit, prev: GisUnitSnap | undefined): GisUnitSnap | null {
+  let fps: FootprintRing[];
+  if (u.synthetic) {
+    fps = u.synthetic.circles.map(([x, z, r]) => ({ ...ringFootprint(circleRing(x, z, r), 'clarifier'), cx: x, cz: z, area: Math.PI * r * r }));
+  } else if (u.shape === 'lanes') {
+    fps = u.osm.flatMap((o) => laneFootprints(o.ring, u.lanes ?? 2));
+  } else {
+    fps = u.osm.map((o) => ringFootprint(o.ring, u.shape === 'cyl' ? 'clarifier' : u.shape === 'building' ? 'other' : 'basin'));
+  }
+  if (!fps.length) return null;
+  const c = centroidOf(fps);
+  const isBuilding = u.shape === 'building';
+  const kind: GisUnitSnap['kind'] = u.shape === 'cyl' ? 'cyl' : isBuilding ? (prev?.kind ?? 'rect') : 'basin';
+  return {
+    id,
+    label: u.label ?? prev?.label ?? UNIT_LABELS[id] ?? id,
+    kind,
+    x: c.x,
+    z: c.z,
+    yaw: kind === 'cyl' || isBuilding ? 0 : meanYaw(fps),
+    count: u.shape === 'lanes' ? fps.length : isBuilding ? (prev?.count ?? 1) : fps.length,
+    radiusM: kind === 'cyl' ? avgRadius(fps) : undefined,
+    widthM: kind === 'basin' ? Math.max(...fps.map((f) => f.obbWidth)) : undefined,
+    depthM: kind === 'basin' ? Math.max(...fps.map((f) => f.obbDepth)) : undefined,
+    footprints: fps,
+    // Only invented geometry is "(est.)"; a real OSM outline with an inferred role carries its
+    // ESTIMATE in sourceNote (HoverTip) instead.
+    estimated: !!u.synthetic,
+    estimateNote: u.synthetic ? `Estimated placement, not from OSM — ${u.note}` : undefined,
+    sourceNote: registrySourceNote(u),
+    building: isBuilding,
+    buildingHeightM: u.height,
+  };
+}
+
+/** Replace heuristic tank snaps with the registry's real OSM outlines (tanks only). */
+function applyRegistryTanks(snaps: GisUnitSnap[], reg: RegistryPlant, obs: SiteObstacles): void {
+  // Registry plants assign every mapped tank explicitly — heuristic "standby" leftovers would
+  // duplicate tanks the registry already claimed.
+  const standby = snaps.findIndex((s) => s.id === 'clarifiers-standby');
+  if (standby >= 0) snaps.splice(standby, 1);
+  for (const [id, u] of Object.entries(reg.units)) {
+    if (BUILDING_UNITS.has(id)) continue;
+    const i = snaps.findIndex((s) => s.id === id);
+    const snap = registrySnap(id, u, i >= 0 ? snaps[i] : undefined);
+    if (!snap) continue;
+    for (const f of snap.footprints) obs.addRing(f.ring);
+    if (i >= 0) snaps[i] = snap;
+    else snaps.push(snap);
+  }
+  for (const id of reg.keepHeuristic) {
+    const s = snaps.find((x) => x.id === id);
+    if (s && reg.notes[id]) s.sourceNote = `Footprint: ${reg.notes[id]}`;
+  }
+}
+
+/** Swap estimated headworks / UV / solids boxes for the registry's real OSM building outlines. */
+function applyRegistryBuildings(snaps: GisUnitSnap[], reg: RegistryPlant): void {
+  for (const id of BUILDING_UNITS) {
+    const u = reg.units[id];
+    if (!u) continue;
+    const i = snaps.findIndex((s) => s.id === id);
+    const snap = registrySnap(id, u, i >= 0 ? snaps[i] : undefined);
+    if (!snap) continue;
+    if (i >= 0) snaps[i] = snap;
+    else snaps.push(snap);
+  }
 }

@@ -18,6 +18,15 @@ npm run build
 npm run preview
 ```
 
+## v0.3.16 footprints, SCADA tags, polish
+
+- **Real footprints** — every mapped unit sits on its real OSM outline, assigned in `scripts/footprint-roles.json` and baked by `python3 scripts/bakeFootprints.py` (nigian Overpass first, public mirror fallback) into `src/data/footprints.json`. Per-unit OSM way, public source and basis (OSM-TAGGED / SOURCE / **ESTIMATE**) are listed in [`docs/footprint-sources.md`](docs/footprint-sources.md) and shown in each unit's hover tip.
+  - Kitchener primaries now sit on the four-lane rectangle that Region EA Fig. 2-1 labels "Preliminary and Primary Treatment" (closes Code Critic's P0). The old 45×18 m synthetic bank is gone.
+  - Headworks, UV and solids buildings use real OSM building outlines where one exists. Hamilton gains a digester complex and the Tertiary Treatment Facility, and Galt gains its disc-filter building. St. Jacobs now uses GIS: the real oxidation-ditch outline plus OSM buildings.
+  - Hamilton no longer counts the OSM reservoir and Red Hill Creek as aeration, and Ashbridges Bay treats its three identical tanks alike.
+- **SCADA tag list** — ISA-5.1 tags per area (`WAT-AIT-301` and similar) with units, ranges, LL/L/H/HH limits that match the model's alarms, setpoints, live state and basis. The panel also shows the plant's liquid and solids train in its published order. Hover tips show each unit's tags. A new `DO high` warning fires above 4.5 mg/L (ESTIMATE).
+- **Polish** — fog thins with orbit distance, so large plants are no longer washed out from bird's-eye. The final-effluent pipe now goes to the waterway tip nearest disinfection instead of crossing the site. OSM buildings have light roofs. The menu blurb shows each plant's footprint provenance.
+
 ## v0.3.15 scenery + persistent DEM cache
 
 - **Bing Aerial via Cesium ion** (asset 2, no labels, zoom 17) when `VITE_CESIUM_ION_TOKEN` is set in gitignored `.env.local`. Falls back to Esri World Imagery. Attribution badges stay on screen. Imagery uses the browser HTTP cache only — tiles are not written to IndexedDB.

@@ -65,6 +65,8 @@ export class PlantScene {
   gisUsed = false;
   /** unitId → on-screen honesty note for placeholder / invented placements. */
   readonly estimateNotes: Record<string, string> = {};
+  /** v0.3.16: unitId → footprint provenance (OSM way, basis, public source) for HoverTip. */
+  readonly sourceNotes: Record<string, string> = {};
 
   private root: THREE.Group;
   private processRoot: THREE.Group;
@@ -172,7 +174,7 @@ export class PlantScene {
     this.renderer.toneMappingExposure = 1.05;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x9bb4c8, 0.0015);
+    this.scene.fog = new THREE.FogExp2(0x9bb4c8, FOG_DENSITY);
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 2800);
     this.root = new THREE.Group();
@@ -607,6 +609,7 @@ export class PlantScene {
       group.userData.unitId = snap.id;
       const shownLabel = snap.estimated ? `${snap.label} (est.)` : snap.label;
       if (snap.estimated) this.estimateNotes[snap.id] = snap.estimateNote ?? 'Estimated placement, not from OSM';
+      if (snap.sourceNote) this.sourceNotes[snap.id] = snap.sourceNote;
       const label = this.makeLabel(shownLabel);
       label.position.set(0, 10, 0);
       group.add(label);
@@ -661,6 +664,16 @@ export class PlantScene {
 
   private meshFromGisSnap(snap: GisUnitSnap): THREE.Group | null {
     const group = new THREE.Group();
+    if (snap.building && snap.footprints.length) {
+      for (const fp of snap.footprints) {
+        const { x: px, z: pz } = worldToGroupLocal(fp.cx - snap.x, fp.cz - snap.z, snap.yaw);
+        const before = group.children.length;
+        this.addFootprintBuilding(group, fp, px, pz, snap.buildingHeightM ?? BUILDING_HEIGHT_M[snap.id] ?? 6, snap.id, snap.yaw);
+        const added = group.children[before];
+        if (added) added.userData.osmFp = { cx: fp.cx, cz: fp.cz, area: fp.area, unitId: snap.id, kind: 'bldg' };
+      }
+      return group;
+    }
     if (snap.kind === 'cyl' && snap.footprints.length) {
       for (const fp of snap.footprints) {
         const r = Math.sqrt(fp.area / Math.PI);
@@ -737,6 +750,36 @@ export class PlantScene {
     roof.userData.unitId = snap.id;
     group.add(roof);
     return group;
+  }
+
+  /** v0.3.16: roofed building extruded from its real OSM outline (headworks / UV / solids / filters). */
+  private addFootprintBuilding(
+    group: THREE.Group,
+    fp: FootprintRing,
+    px: number,
+    pz: number,
+    h: number,
+    unitId: string,
+    snapYaw: number,
+  ): void {
+    const g = new THREE.Group();
+    g.position.set(px, 0, pz);
+    const shape = ringToLocalShape(fp.ring, fp.cx, fp.cz, snapYaw);
+    if (!shape) return;
+    const wallGeo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false, curveSegments: 2 });
+    wallGeo.rotateX(-Math.PI / 2);
+    const walls = new THREE.Mesh(wallGeo, unitId === 'digesters' ? this.mats.concreteAlt : this.mats.weathered);
+    walls.castShadow = true;
+    walls.receiveShadow = true;
+    walls.userData.unitId = unitId;
+    g.add(walls);
+    const roofGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.35, bevelEnabled: false, curveSegments: 2 });
+    roofGeo.rotateX(-Math.PI / 2);
+    const roof = new THREE.Mesh(roofGeo, this.mats.concrete);
+    roof.position.y = h;
+    roof.userData.unitId = unitId;
+    g.add(roof);
+    group.add(g);
   }
 
   /** Covered anaerobic digester on a real OSM storage-tank ring: closed shell + shallow dome roof. */
@@ -2020,17 +2063,33 @@ export class PlantScene {
       }
     }
 
+    // v0.3.16: thin the haze as the orbit camera pulls back — a fixed FogExp2 density washed
+    // ~55% of the colour out of 600 m bird's-eye views of the large plants (KIT, WWD, ABTP).
+    const fog = this.scene.fog as THREE.FogExp2 | null;
+    if (fog) fog.density = this.mode === 'walk' ? FOG_DENSITY : FOG_DENSITY * clamp(220 / Math.max(1, this.orbitDist), 0.3, 1);
+
     // (v0.3.14: the per-frame label rescale that lived here was always overwritten by
     // declutterLabels(), which owns label scale and position; with placement cached across
     // unchanged frames it would have left labels drawn at the wrong size.)
   }
 }
 
+const FOG_DENSITY = 0.0015;
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
 /** Build a THREE.Shape in snap-local XZ from a world-metre footprint ring. */
+/** v0.3.16: default eave heights for OSM-outline buildings (ESTIMATE — typical for the unit type). */
+const BUILDING_HEIGHT_M: Record<string, number> = {
+  headworks: 7,
+  solids: 9,
+  disinfection: 5.5,
+  tertiary: 7,
+  digesters: 10,
+};
+
 function ringToLocalShape(
   ring: number[][],
   cx: number,

@@ -6,6 +6,7 @@ import { audio } from '../audio/AudioEngine';
 import type { SimState } from '../sim/processModel';
 import type { PlantRuntime } from '../data/plantTypes';
 import { formatFlow } from '../data/plantTypes';
+import { tagsForPlant, tagState, type TagDef } from '../sim/scadaTags';
 
 export interface UnitExplainer {
   name: string;
@@ -127,6 +128,9 @@ export class HoverTip {
   private lastClientX = 0;
   private lastClientY = 0;
   private estimateNotes: Record<string, string> = {};
+  private sourceNotes: Record<string, string> = {};
+  private tagDefs: TagDef[] = [];
+  private tagPlantId = '';
   /**
    * v0.3.13: the tip is pointer-transparent while it follows the cursor (it used to swallow
    * pointermoves when the cursor slid down-right into it, freezing a stale title — QA saw KIT's
@@ -163,8 +167,9 @@ export class HoverTip {
   }
 
   /** unitId → "Estimated placement, not from OSM …" line for placeholder units. */
-  setEstimateNotes(notes: Record<string, string>): void {
+  setEstimateNotes(notes: Record<string, string>, sources: Record<string, string> = {}): void {
     this.estimateNotes = { ...notes };
+    this.sourceNotes = { ...sources };
   }
 
   /** Feed live sim tags so the tip stays current while hovered. */
@@ -252,6 +257,7 @@ export class HoverTip {
       <div class="hover-title">${escapeHtml(ex.name)}</div>
       <div class="hover-blurb">${escapeHtml(ex.blurb)}</div>
       ${this.estimateNotes[unitId] ? `<div class="hover-est">⚠ ${escapeHtml(this.estimateNotes[unitId])}</div>` : ''}
+      ${this.sourceNotes[unitId] ? `<div class="hover-src">${escapeHtml(this.sourceNotes[unitId])}</div>` : ''}
       ${liveHtml}
       ${btn && !this.pinned ? '<div class="hover-pin-hint">Click the unit to pin this tip</div>' : ''}
       ${btn}
@@ -298,6 +304,16 @@ export class HoverTip {
     if (unitId === 'disinfection' || unitId === 'outfall') lines.push(`Disinfect ${state.disinfectionStatus}`);
     if (unitId === 'primary' && !p.hasOxidationDitch) lines.push(`Primary settle · ${state.statusLine}`);
     else lines.push(state.statusLine);
+    // v0.3.16: the unit's SCADA tags (ISA-5.1 ids) with PV and alarm state — first three.
+    if (this.tagPlantId !== p.id) {
+      this.tagDefs = tagsForPlant(p);
+      this.tagPlantId = p.id;
+    }
+    for (const t of this.tagDefs.filter((d) => d.unitId === unitId).slice(0, 3)) {
+      const v = t.pv(state);
+      const st = tagState(t, v);
+      lines.push(`${t.tag} ${v == null ? '—' : v.toFixed(t.digits)} ${t.eu}${st === 'NORM' ? '' : ` [${st}]`}`);
+    }
     return lines;
   }
 }

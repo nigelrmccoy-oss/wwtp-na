@@ -1,0 +1,104 @@
+{
+  "_doc": "Hand-authored unit → OSM footprint assignments for v0.3.16. scripts/bakeFootprints.py resolves each way via Overpass (nigian 127.0.0.1:12346 first, public mirror fallback) into local metres and writes src/data/footprints.json. basis: OSM-TAGGED = OSM tags name the role; SOURCE = a public document places the unit; ESTIMATE = real OSM outline, role inferred from process logic + ortho cross-check. Geometry is always the OSM outline unless a unit says synthetic (then the geometry itself is ESTIMATE).",
+  "refs": {
+    "KIT_EA": "https://www.regionofwaterloo.ca/media/tx3ilmbu/kitchener_upgrades_final.pdf",
+    "KIT_T2021_134": "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/5c366422-d883-4372-97d4-5958652cdd82",
+    "KIT_T2024_180": "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/f0d19131-3690-4298-9d46-c173c1911a40",
+    "ROW_WWTMP_2018": "https://www.regionofwaterloo.ca/media/j45krx0g/ws2018wastewater_treatment_master_plan_wwtmp_final_report.pdf",
+    "ROW_TM2_2017": "https://www.regionofwaterloo.ca/media/tt5lt0qf/ws2018v2-tech_memo_2-wwtmp-current_status_and_capacity_assessment-may2017.pdf",
+    "WAT_T2024_198": "https://regionofwaterloo.bidsandtenders.ca/Module/Tenders/en/Tender/Detail/4540397b-20eb-4462-b967-aa26e553180a",
+    "WAT_AER_UV_2023": "https://projects.constructconnect.com/details/6311004-waterloo-wwtp-aeration-and-uv-bypass-upgrades",
+    "GALT_T2020_123": "https://calendar.regionofwaterloo.ca/Council/Detail/2020-06-24-1900-Council/8690f11e-6cee-4565-a917-abe300f7d111",
+    "STJ_MP_2013": "https://media-003-ca.cdn.govstack.com/regionofwaterloo-018-ca/media/t0ulq1fg/stjacobselmirawastewatertreatmentmasterplan2013final-aoda.pdf",
+    "HAM_CITY": "https://www.hamilton.ca/home-neighbourhood/water-wastewater-stormwater/wastewater-collection-treatment/wastewater-systems",
+    "HAM_DIAGRAM": "https://www.hamilton.ca/sites/default/files/2023-02/wastewater-treatment-diagram-water-treatment-process-v2.pdf",
+    "HAM_NACS": "https://nacsworld.com/project/woodward-ave-wastewater-treatment-plant",
+    "TOR_FACILITY": "https://www.toronto.ca/services-payments/water-environment/managing-sewage-in-toronto/ashbridges-bay-treatment-plant/",
+    "TOR_AR_2025": "https://www.toronto.ca/wp-content/uploads/2026/06/9914-2025-TAB-Annual-Report-Final-AODA.pdf"
+  },
+  "plants": {
+    "waterloo": {
+      "plantWay": "way/398629823",
+      "units": {
+        "primary":   { "ways": ["way/799495395","way/799495396","way/799495397","way/799495398"], "shape": "cyl", "basis": "ESTIMATE", "note": "Four OSM water=wastewater circles (≈403 m² each, r≈11 m) beside the digesters; smallest circular tanks upstream of aeration, so taken as primaries.", "refs": ["ROW_TM2_2017","WAT_AER_UV_2023"] },
+        "aeration":  { "ways": ["way/39945504"], "shape": "basin", "basis": "ESTIMATE", "note": "Single L-shaped OSM wastewater polygon (≈5,200 m²); ortho shows anoxic cells (NW leg) and the aeration grid as one outline. 2023 tender confirms anoxic-zone mixers and a primary effluent channel feeding it.", "refs": ["WAT_AER_UV_2023","WAT_T2024_198"] },
+        "secondary": { "ways": ["way/799495388","way/799495389","way/799495390","way/799495391"], "shape": "cyl", "basis": "ESTIMATE", "note": "Four OSM content=sewage circles (≈1,063 m², r≈18.4 m) downstream (east) of aeration.", "refs": ["ROW_TM2_2017"] },
+        "digesters": { "ways": ["way/799495393","way/799495394"], "shape": "cyl", "basis": "OSM-TAGGED", "note": "OSM man_made=storage_tank, content=sewage.", "refs": [] },
+        "headworks": { "ways": ["way/799495413"], "shape": "building", "basis": "ESTIMATE", "note": "≈440 m² OSM building on the west side, upstream of the primaries; OSM does not name it.", "refs": ["ROW_TM2_2017"] },
+        "solids":    { "ways": ["way/799495404"], "shape": "building", "basis": "ESTIMATE", "note": "Largest OSM building (≈2,130 m²) between primaries/digesters and aeration — taken as the WAS thickening / centrifuge dewatering building. Could instead be the blower building (T2024-198).", "refs": ["ROW_TM2_2017","WAT_T2024_198"] },
+        "disinfection": { "ways": ["way/799495409"], "shape": "building", "basis": "ESTIMATE", "note": "≈640 m² OSM building directly downstream (SE) of the secondary clarifiers — taken as the UV building (2023 tender: UV system + UV bypass chamber).", "refs": ["WAT_AER_UV_2023"] }
+      },
+      "unmapped": [],
+      "conflicts": []
+    },
+    "kitchener": {
+      "plantWay": "way/154430088",
+      "units": {
+        "primary":   { "ways": ["way/39457430"], "shape": "lanes", "lanes": 4, "basis": "SOURCE", "note": "EA Fig. 2-1 (Site Plan, p.11) puts 'Preliminary and Primary Treatment' at this partitioned rectangle SW of Plant 2 (located by matching the figure to the ortho); T2021-134 confirms four rectangular primaries (3 Fujiwara mechanisms each). OSM maps the outer wall only — the 4 lanes are split evenly inside it (ESTIMATE).", "refs": ["KIT_EA","KIT_T2021_134"] },
+        "aeration":  { "ways": ["way/815746498","way/815746499"], "shape": "basin", "basis": "ESTIMATE", "note": "Two OSM wastewater outlines with plug-flow lanes on the former biosolids-lagoon site — the Plant 3 aeration tanks per EA Contract 4 (lagoons decommissioned in Contract 1).", "refs": ["KIT_EA","KIT_T2024_180"] },
+        "secondary": { "ways": ["way/815746500","way/815746501","way/815746502","way/815746503","way/815746504","way/815746505","way/815746494","way/815746495","way/815746496","way/815746497"], "shape": "cyl", "basis": "ESTIMATE", "note": "Ten OSM content=sewage circles on the lagoon site (6 × r≈19.3 m, 4 × r≈16.8 m); EA Contract 4 describes new final clarifiers in groups of four.", "refs": ["KIT_EA"] },
+        "headworks": { "ways": ["way/815746510"], "shape": "building", "basis": "ESTIMATE", "note": "≈1,060 m² OSM building immediately SE of the primaries; EA Fig. 2-1 co-locates preliminary + primary treatment and Contract 3A replaces the headworks.", "refs": ["KIT_EA"] },
+        "disinfection": { "ways": ["way/815746506"], "shape": "building", "basis": "ESTIMATE", "note": "1,355 m² OSM building on the river side near the old chlorination/dechlorination facility (Fig. 2-1); EA: new UV disinfection + effluent pumping station.", "refs": ["KIT_EA"] },
+        "solids":    { "ways": ["way/492461481"], "shape": "building", "basis": "ESTIMATE", "note": "948 m² OSM building between the Plant 3 tanks — taken as the WAS thickening building (EA Contract 5 'new sludge thickening'). Dewatering is off-site at Manitou Dr.", "refs": ["KIT_EA"] }
+      },
+      "keepHeuristic": ["digesters"],
+      "notes": { "digesters": "Digestion Complex at way/515109518 per EA Fig. 2-1 (SOURCE); tank circles fitted inside the OSM building outline (v0.3.13)." },
+      "unmapped": [
+        "Plant 1 aeration grid and 4 Plant 2 circular clarifiers are visible in the ortho (between the digestion complex and the primaries) but have no OSM polygon — not modelled (Plant 1 is slated for decommissioning in EA Phase 3).",
+        "Plant 2 aeration tanks: no OSM polygon."
+      ],
+      "conflicts": [
+        "v0.3.13–0.3.15 placed 45×18 m synthetic primaries on open ground east of the clarifiers and used way/39457430 as aeration; EA Fig. 2-1 shows that rectangle is the primary facility (Code Critic P0)."
+      ]
+    },
+    "galt": {
+      "plantWay": "way/337944783",
+      "units": {
+        "primary":   { "ways": ["way/831361022","way/831361023","way/831361021"], "shape": "cyl", "basis": "ESTIMATE", "note": "Three OSM wastewater circles (≈351 m², r≈10.6 m). Galt runs primaries and secondaries; OSM maps only these three, so they stand in for the primaries.", "refs": ["ROW_TM2_2017","GALT_T2020_123"] },
+        "aeration":  { "ways": ["way/831361024"], "shape": "basin", "basis": "ESTIMATE", "note": "1,260 m² OSM wastewater rectangle with lanes — Plant B aeration (T2020-123 adds anoxic zone + diffusers).", "refs": ["GALT_T2020_123"] },
+        "tertiary":  { "ways": ["way/831361026"], "shape": "building", "basis": "ESTIMATE", "note": "Only OSM building inside the fence (302 m², building=service) — taken as the disc-filter building (T2020-123 replaces sand filters with disc filtration).", "refs": ["GALT_T2020_123"] }
+      },
+      "unmapped": ["Headworks, grit, UV and Plant A tanks have no OSM polygons; several buildings visible in the ortho are unmapped."],
+      "conflicts": ["Role of the three circles (primary vs secondary) is not confirmed by a public site plan."]
+    },
+    "hamilton-woodward": {
+      "plantWay": "way/778404147",
+      "units": {
+        "aeration":  { "ways": ["way/76979583","way/76979275"], "shape": "basin", "basis": "SOURCE", "note": "Two largest OSM water=basin outlines (≈18,000 m² each) — North and expanded South Plant aeration (South expanded 22,000 → 41,100 m³, plug flow).", "refs": ["HAM_NACS","HAM_CITY"] },
+        "primary":   { "ways": ["way/97928034","way/76979283"], "shape": "basin", "basis": "ESTIMATE", "note": "Two ≈5,400 m² OSM basins north of aeration — taken as the primary (CEPT) tanks.", "refs": ["HAM_DIAGRAM","HAM_NACS"] },
+        "secondary": { "ways": ["way/446684235","way/446684236","way/446684237","way/446684238","way/446684239","way/446684240","way/446684241","way/446684242"], "shape": "basin", "basis": "SOURCE", "note": "Eight ≈1,267 m² rectangular OSM basins. NACS: South Plant clarifiers expanded to six chain-and-flight units, 7,290 m² total (1,215 m² each) — matches tank size.", "refs": ["HAM_NACS"] },
+        "digesters": { "ways": ["way/257716585","way/257716586"], "shape": "building", "height": 10, "basis": "ESTIMATE", "note": "Two lobed OSM building outlines (3,953 m² each) shaped like paired round tanks — taken as the digester complex (City: three primary + one secondary digester).", "refs": ["HAM_CITY"] },
+        "tertiary":  { "ways": ["way/43940787"], "shape": "building", "height": 9, "basis": "ESTIMATE", "note": "Largest OSM building on site (6,279 m², building=service) — taken as the Tertiary Treatment Facility (10 disk-filter trains, 63 MLD each).", "refs": ["HAM_NACS"] }
+      },
+      "excluded": [
+        { "way": "way/43936913", "reason": "OSM water=reservoir inside the WWTP fence — not a process tank (v0.3.15 counted it as aeration, stretching the basin group to ~900 m)." },
+        { "way": "way/149025723", "reason": "OSM water=river (Red Hill Creek) crosses the WWTP outline — not a process tank." }
+      ],
+      "unmapped": ["New chlorine contact tank (≈10,420 m³) and headworks have no OSM polygon."],
+      "conflicts": ["OSM shows 8 rectangular clarifier-sized basins; NACS describes 6 South Plant clarifiers — the other 2 may belong to the North Plant."]
+    },
+    "toronto-ashbridges-bay": {
+      "plantWay": "way/265096981",
+      "units": {
+        "primary":   { "ways": ["way/69341277","way/1116992826","way/1116992827"], "shape": "basin", "basis": "ESTIMATE", "note": "Three identical CanVec-sourced wastewater outlines (2,734 m²) — v0.3.15 split them 2 primary / 1 aeration; now treated alike as primary tanks.", "refs": ["TOR_FACILITY","TOR_AR_2025"] },
+        "aeration":  { "ways": ["way/69341280","way/69341278"], "shape": "basin", "basis": "ESTIMATE", "note": "Two large CanVec wastewater outlines (≈37,000–39,000 m²) — the aeration/secondary complexes.", "refs": ["TOR_FACILITY","TOR_AR_2025"] }
+      },
+      "keepHeuristic": ["digesters"],
+      "notes": { "digesters": "OSM man_made=storage_tank rings (OSM-TAGGED role is generic storage tank; digester use per City facility page)." },
+      "unmapped": ["Secondary clarifiers are not mapped separately in OSM."],
+      "conflicts": ["The geo bake picked a 1,910 m² water polygon at (−316, −241) as a primary; live OSM puts it outside the WWTP outline, so it is dropped."]
+    },
+    "st-jacobs": {
+      "plantWay": "way/816956510",
+      "units": {
+        "primary":   { "ways": ["way/816956511"], "shape": "basin", "label": "Oxidation Ditch", "basis": "SOURCE", "note": "Racetrack-shaped OSM water=wastewater outline (980 m²) — the oxidation ditch named in the Master Plan.", "refs": ["STJ_MP_2013","ROW_TM2_2017"] },
+        "secondary": { "synthetic": { "circles": [[56.0, 8.0, 6.5],[56.0, -8.0, 6.5]] }, "shape": "cyl", "basis": "ESTIMATE", "note": "Secondary clarifiers are not mapped in OSM; two r=6.5 m tanks (sized for ~1.45 MLD at ~20 m³/m²·d) placed on open grass east of the ditch (ortho cross-check). Geometry and position are ESTIMATE.", "refs": ["ROW_TM2_2017"] },
+        "headworks": { "ways": ["way/506577993"], "shape": "building", "basis": "ESTIMATE", "note": "478 m² OSM building at the site entrance — taken as the headworks/control building.", "refs": ["STJ_MP_2013"] },
+        "tertiary":  { "ways": ["way/506577992"], "shape": "building", "basis": "ESTIMATE", "note": "558 m² OSM building — taken as the tertiary filter + UV building.", "refs": ["STJ_MP_2013"] },
+        "solids":    { "ways": ["way/506577994"], "shape": "building", "basis": "ESTIMATE", "note": "66 m² OSM building — aerated sludge holding blower/control kiosk.", "refs": ["STJ_MP_2013"] }
+      },
+      "unmapped": ["Aerated sludge holding tank and UV channel have no OSM polygon."],
+      "conflicts": []
+    }
+  }
+}
